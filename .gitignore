@@ -1,0 +1,10 @@
+*.pyc
+*.swp
+*.pem
+*.DS_Store
+*.gz
+*.egg-info
+.ipynb_checkpoints
+dist
+build
+__pycache__

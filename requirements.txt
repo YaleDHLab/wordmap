@@ -1,0 +1,9 @@
+Flask>=0.12.2
+Flask-Cors>=3.0.3
+gensim>=3.6.0
+gunicorn>=19.7.1
+matplotlib>=2.0.0
+MulticoreTSNE>=0.1
+numpy>=1.15.1
+scipy>=1.2.1
+yale_dhlab_rasterfairy>=1.0.3
