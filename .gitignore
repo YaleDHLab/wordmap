@@ -5,6 +5,7 @@
 *.gz
 *.egg-info
 .ipynb_checkpoints
+clean.sh
 dist
 build
 __pycache__
