@@ -53,13 +53,19 @@ def plot(words, df, max_words=100000):
   for i in r:
     if i[1]%2==0:
       i[2] += 0.5
+  # format the layout json
+  layouts = [
+    {'words': words, 'positions': t, 'name': 'tsne'},
+    {'words': words, 'positions': r, 'name': 'grid'},
+  ]
   # copy web assets to user's location
   prepare_web_assets()
   # persist the results to disk
   print(' * writing outputs')
   if not os.path.exists(web_target): os.makedirs(web_target)
-  with open(join(web_target, 'wordmap-tsne.json'), 'w') as out: json.dump(t, out)
-  with open(join(web_target, 'wordmap-grid.json'), 'w') as out: json.dump(r, out)
+  out_path = join(web_target, 'wordmap-layouts.json')
+  with open(out_path, 'w') as out:
+    json.dump(layouts, out)
 
 
 def prepare_web_assets():
@@ -88,8 +94,7 @@ def plot_gensim_word2vec(model, max_words=100000):
   words = model.wv.index2entity
   if max_words:
     words = words[:max_words]
-  df = [model.wv[w] for w in words]
-  df = np.array(df)
+  df = np.array([model.wv[w] for w in words])
   if len(words) != df.shape[0]:
     print('! Warning: the number of words != number of elements in dataframe')
     print('! Number of words:', len(words))
