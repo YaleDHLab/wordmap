@@ -4,13 +4,17 @@ import glob
 
 setup (
   name='wordmap',
-  version='0.0.1',
+  version='0.0.2',
   packages=['wordmap'],
   package_data={
-    'wordmap': ['web/*', 'web/js/*'],
+    'wordmap': [
+      'web/*',
+      'web/js/*',
+      'geometry/*',
+    ],
   },
   keywords = ['webgl', 'three.js', 'word2vec', 'tsne', 'umap', 'machine-learning'],
-  description='Visualize massive ',
+  description='Visualize massive word collections',
   url='https://github.com/yaledhlab/wordmap',
   author='Douglas Duhaime',
   author_email='douglas.duhaime@gmail.com',
