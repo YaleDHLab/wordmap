@@ -12,8 +12,27 @@
     overflow: hidden;
   }
 
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.2));
+  }
+
+  canvas {
+    position: relative;
+    z-index: 10;
+  }
+
+  body .dg.ac {
+    z-index: 100;
+  }
+
   #letter-canvas {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
   }
@@ -22,19 +41,45 @@
     position: absolute;
     top: 23px;
     left: 50%;
-    width: 370px;
-    margin-left: -185px;
+    width: 360px;
+    margin-left: -180px;
     font-family: courier, monospace;
-    z-index: 10;
+    z-index: 100;
   }
 
   #search,
   #search-button {
     padding: 7px 10px;
-    font-size: 1em;
-    border-radius: 3px;
-    border: 1px solid #aaa;
+    font-size: 16px;
+    line-height: 16px;
     box-sizing: border-box;
+  }
+
+  #search,
+  #search-button,
+  #search-button::before {
+    border-radius: 3px;
+  }
+
+  #search {
+    border: 1px solid #aaa;
+  }
+
+  #search-button {
+    position: relative;
+    opacity: 0.7;
+    border: 1px solid #797979;
+  }
+
+  #search-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: #fff;
+    z-index: -1;
   }
 
   #search,
@@ -64,6 +109,11 @@
     box-sizing: border-box;
     border-bottom-left-radius: 3px;
     border-bottom-right-radius: 3px;
+    border: 1px solid #a9a9a9;
+    border-top: none;
+    z-index: -1;
+    position: relative;
+    margin-top: -2px;
   }
 
   .hidden {
@@ -75,7 +125,7 @@
   }
 
   #typeahead div {
-    margin: 2px 10px;
+    padding: 3px 10px;
     cursor: pointer;
     white-space: nowrap;
   }
@@ -85,11 +135,11 @@
   }
 
   #no-results {
-    padding: 7px;
+    padding: 6px;
     background: firebrick;
     color: #fff;
     font-size: 1em;
-    transform: translate(0, 26px);
+    transform: translate(0, 24px);
     display: block;
     margin: 0 auto;
     width: 107px;
@@ -97,16 +147,10 @@
     position: absolute;
     left: 50%;
     margin-left: -180px;
-    z-index: 1;
+    z-index: 90;
     font-family: courier;
-    border: 1px solid #795e5e;
     border-radius: 3px;
-    opacity: 0;
-    transition: transform 0.3s opacity 0.3s;
-  }
-
-  canvas {
-    background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.4));
+    transition: transform 0.3s;
   }
 
   </style>
@@ -122,28 +166,26 @@
     <div id='typeahead'></div>
   </div>
 
-  <script src='js/three.min.js'></script>
-  <script src='js/trackball-controls.min.js'></script>
-  <script src='js/tweenlite.min.js'></script>
-
   <script id='vertex-shader' type='x-shader/x-vertex'>
   uniform mat4 projectionMatrix;
   uniform mat4 modelViewMatrix;
   uniform vec3 cameraPosition;
   uniform float pointScale;
+  uniform float transition;
 
   attribute vec3 position;
   attribute vec3 translation;
-  attribute vec2 uv;
+  attribute vec3 target;
   attribute vec2 texOffset;
 
-  varying vec2 vUv;
   varying vec2 vTexOffset;
+  varying float vDistance;
 
   void main() {
     // project this particle
-    vec3 raw = position + translation;
-
+    vec3 raw0 = position + translation;
+    vec3 raw1 = position + target;
+    vec3 raw = mix(raw0, raw1, clamp(transition, 0.0, 1.0));
     vec4 mvPosition = modelViewMatrix * vec4(raw, 1.0);
     gl_Position = projectionMatrix * mvPosition;
 
@@ -151,8 +193,9 @@
     vec4 cam4 = vec4(cameraPosition, 1.0);
     gl_PointSize = (pointScale / -mvPosition.z);
 
-    vUv = uv;
     vTexOffset = texOffset;
+
+    vDistance = -mvPosition.z;
   }
   </script>
 
@@ -164,465 +207,31 @@
   uniform float cellSize;
   uniform float fogNear;
   uniform float fogFar;
+  uniform float color;
 
-  varying vec2 vUv;
   varying vec2 vTexOffset;
+  varying float vDistance;
 
   void main() {
     #ifdef WORDS
       vec2 uv = vTexOffset + vec2(gl_PointCoord.x, gl_PointCoord.y);
       vec2 scaledUv = uv * vec2(cellSize, cellSize);
       gl_FragColor = texture2D(tex, scaledUv);
-      if (gl_FragColor.r < 0.1) discard; // discard black letter backgrounds
+      if (gl_FragColor.a < 0.01) discard; // discard non-letter pixels
     #else
       // make point circular
       if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
       gl_FragColor = vec4(0.7, 0.7, 0.8, 0.5);
     #endif
 
-    // apply fog
-    #ifdef USE_LOGDEPTHBUF_EXT
-      float depth = gl_FragDepthEXT / gl_FragCoord.w;
-    #else
-      float depth = gl_FragCoord.z / gl_FragCoord.w;
-    #endif
-    float fogFactor = smoothstep(fogNear, fogFar, depth);
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-
-    // fade with distance to camera
-    gl_FragColor.a = gl_FragColor.a - pow(gl_FragCoord.z, 5.0);
+    gl_FragColor.a += pow(vDistance, 2.0) / 8.0;
   }
   </script>
 
-  <script>
-
-  /**
-  * Config
-  **/
-
-  var BA = THREE.BufferAttribute,
-      IBA = THREE.InstancedBufferAttribute,
-      ARR = Float32Array,
-      wordScalar = 0.00025, // sizes up words
-      sep = wordScalar * .90, // space between words
-      size = 32, // size of each character on canvas
-      heightScalar = 0.001, // controls mountain height
-      maxWords = 1000000, // max number of words to draw
-      background = '#485661', // background color
-      fog = '#485661', // fog color
-      color = '#fff', // text color
-      input = document.querySelector('#search'), // query box
-      typeahead = document.querySelector('#typeahead'), // typeahead options
-      button = document.querySelector('#search-button'); // submit button
-
-  /**
-  * State
-  **/
-
-  var flying = false;
-
-  /**
-  * Data
-  **/
-
-  var heightmap = null,
-      wordToCoords = {};
-
-  /**
-  * Boilerplate
-  **/
-
-  // generate a scene object
-  var scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(fog, 0.001, 100.0);
-
-  // generate a camera
-  var aspectRatio = window.innerWidth / window.innerHeight;
-  var camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.001, 10);
-
-  // generate a renderer
-  var renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
-  renderer.sortObjects = false; // make scene.add order draw order
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  // generate controls
-  var controls = new THREE.TrackballControls(camera, renderer.domElement);
-  controls.zoomSpeed = 0.05;
-  controls.panSpeed = 0.05;
-
-  // position the camera
-  camera.position.set(0.54, 0.04, 0.53);
-  camera.up.set(-0.02, 0.45, 0.87);
-  camera.quaternion.set({_x: 0.50, _y: 0.0, _z: 0.0, _w: 0.86});
-  controls.target.set(0.5, 2.42, -0.5);
-  controls.update();
-
-  // render loop
-  function render() {
-    requestAnimationFrame(render);
-    renderer.render(scene, camera);
-    controls.update();
-  };
-
-  /**
-  * Character canvas
-  **/
-
-  function getCharMap() {
-    var canvas = document.createElement('canvas'),
-        ctx = canvas.getContext('2d'),
-        charToCoords = {},
-        yOffset = -0.25; // offset to draw full letters w/ baselines...
-    canvas.width = size * 16; // * 16 because we want 16**2 = 256 letters
-    canvas.height = size * 16; // must set size before setting font size
-    canvas.id = 'letter-canvas';
-    ctx.font = size + 'px Monospace';
-    // give the canvas a black background for pixel discarding
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // draw the letters on the canvas
-    ctx.fillStyle = color;
-    for (var x=0; x<16; x++) {
-      for (var y=0; y<16; y++) {
-        var char = String.fromCharCode((x*16) + y);
-        charToCoords[char] = {x: x, y: y};
-        ctx.fillText(char, x*size, yOffset*size+(y+1)*size);
-      }
-    }
-    // build a three canvas with the canvas
-    var tex = new THREE.Texture(canvas);
-    tex.flipY = false;
-    tex.needsUpdate = true;
-    return {map: charToCoords, tex: tex};
-  }
-
-  /**
-  * Heightmap canvas
-  **/
-
-  function getHeightmap(cb) {
-    var img = new Image();
-    img.crossOrigin = 'Anonymous';
-    img.onload = function() {
-      var canvas = document.createElement('canvas'),
-          ctx = canvas.getContext('2d');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      cb(ctx.getImageData(0,0, img.width, img.height));
-    }
-    img.src = 'heightmap.jpg';
-  }
-
-  /**
-  * Geometry
-  **/
-
-  function addWords(words) {
-    var n = 0;  // size of each char -- todo: factor into global config
-    for (var i=0; i<words.length; i++) n += words[i][0].length;
-    // build up word attributes
-    var translations = new Float32Array(n * 3),
-        texOffsets = new Float32Array(n * 2),
-        translationIter = 0,
-        texOffsetIter = 0;
-    // assume each word has x y coords assigned
-    for (var i=0; i<words.length; i++) {
-      var word = words[i][0],
-          x = words[i][1],
-          y = words[i][2],
-          z = words[i][3] || getHeightAt(x, y);
-      for (var c=0; c<word.length; c++) {
-        var offsets = charMap.map[word[c]] || charMap.map['?'];
-        translations[translationIter++] = x + (sep * c);
-        translations[translationIter++] = y;
-        translations[translationIter++] = z;
-        texOffsets[texOffsetIter++] = offsets.x;
-        texOffsets[texOffsetIter++] = offsets.y;
-      }
-    }
-    // build the geometry
-    var geometry = new THREE.InstancedBufferGeometry();
-    geometry.addAttribute('position', new BA(new ARR([0,0,0]), 3, true, 1));
-    geometry.addAttribute('uv', new BA(new ARR([0,0]), 2, true, 1));
-    geometry.addAttribute('translation', new IBA(translations, 3, true, 1));
-    geometry.addAttribute('texOffset', new IBA(texOffsets, 2, true, 1));
-    // get the material
-    var material = getShaderMaterial();
-    material.defines.WORDS = true;
-    // build the mesh
-    var mesh = new THREE.Points(geometry, material);
-    mesh.frustumCulled = false;
-    mesh.name = 'words';
-    scene.add(mesh);
-  }
-
-  function addPoints(data) {
-    var translations = new Float32Array(data.length*3),
-        iter = 0;
-    for (var i=0; i<data.length; i++) {
-      var x = data[i][1], // scaled 0:1
-          y = data[i][2],
-          z = data[i][3];
-      translations[iter++] = x;
-      translations[iter++] = y;
-      translations[iter++] = z || getHeightAt(x, y);
-    }
-    // build the geometry
-    var geometry = new THREE.InstancedBufferGeometry();
-    geometry.addAttribute('position', new BA(new ARR([0, 0, 0]), 3, 1));
-    geometry.addAttribute('translation', new IBA(translations, 3, true, 1));
-    // compose the material
-    var material = getShaderMaterial();
-    material.transparent = true;
-    material.defines.POINTS = true;
-    // build the mesh
-    var mesh = new THREE.Points(geometry, material);
-    mesh.frustumCulled = false; // prevent mesh clipped on drag
-    mesh.name = 'points';
-    scene.add(mesh);
-  }
-
-  function getPointScale() {
-    return window.devicePixelRatio * window.innerHeight * wordScalar;
-  }
-
-  function getShaderMaterial() {
-    var material = new THREE.RawShaderMaterial({
-      vertexShader: document.getElementById('vertex-shader').textContent,
-      fragmentShader: document.getElementById('fragment-shader').textContent,
-      uniforms: {
-        pointScale: { type: 'f', value: getPointScale(), },
-        cellSize:   { type: 'f', value: size / 512, }, // letter size in map
-        tex:        { type: 't', value: charMap.tex, },
-        fogColor:   { type: 'c', value: scene.fog.color, },
-        fogNear:    { type: 'f', value: scene.fog.near, },
-        fogFar:     { type: 'f', value: scene.fog.far, },
-      },
-    });
-    return material;
-  }
-
-  function get(url, onSuccess, onErr, onProgress) {
-    var xmlhttp = new XMLHttpRequest();
-    xmlhttp.onreadystatechange = function() {
-      if (xmlhttp.readyState == XMLHttpRequest.DONE) {
-        if (xmlhttp.status === 200) {
-          if (onSuccess) onSuccess(xmlhttp.responseText)
-        } else {
-          if (onErr) onErr(xmlhttp)
-        }
-      };
-    };
-    xmlhttp.onprogress = function(e) {
-      if (onProgress) onProgress(e);
-    };
-    xmlhttp.open('GET', url, true);
-    xmlhttp.send();
-  };
-
-  // get the heightmap value at position x, y
-  function getHeightAt(x, y) {
-    var row = Math.floor((1-y) * heightmap.height),
-        col = Math.floor(x * heightmap.width),
-        idx = (row * heightmap.width * 4) + (col * 4),
-        z = heightmap.data[idx] + Math.random();
-    return z * heightScalar;
-  }
-
-  function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    // adjust the spacing of points
-    scene.children.forEach(function(c) {
-      if (c.name == 'points' || c.name == 'words') {
-        c.material.uniforms.pointScale = {
-          type: 'f',
-          value: getPointScale(),
-        };
-      }
-    })
-  }
-
-  function fly(obj) {
-    if (flying) return;
-    flying = true;
-    var _camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.001, 10),
-        _controls = new THREE.TrackballControls(_camera, renderer.domElement),
-        time = 0,
-        q0 = camera.quaternion.clone();
-    _camera.position.set(obj.x, obj.y, obj.z);
-    _controls.target.set(obj.x, obj.y, obj.z);
-    _controls.update();
-    TweenLite.to(camera.position, 3, {
-      x: obj.x,
-      y: obj.y,
-      z: obj.z,
-      onUpdate: function() {
-        time++;
-        var deg = time / (3 * 60); // scale time 0:1
-        THREE.Quaternion.slerp(q0, _camera.quaternion, camera.quaternion, deg);
-      },
-      onComplete: function() {
-        var q = _camera.quaternion,
-            p = _camera.position,
-            u = _camera.up,
-            c = _controls.target;
-        camera.position.set(p.x, p.y, p.z);
-        camera.up.set(u.x, u.y, u.z);
-        camera.quaternion.set(q.x, q.y, q.z, q.w);
-        controls.target = new THREE.Vector3(c.x, c.y, -0.5);
-        controls.update();
-        flying = false;
-      },
-      ease: Power4.easeInOut,
-    });
-  }
-
-  function flyToWord(word) {
-    var coords = wordToCoords[word];
-    if (!coords) {
-      var elem = document.querySelector('#no-results');
-      elem.style.transform = 'translate(0, 75px)';
-      elem.style.opacity = 1
-      setTimeout(function() {
-        elem.style.transform = 'translate(0, 24px)';
-        elem.style.opacity = 0;
-      }, 1500);
-      return;
-    }
-    fly({
-      x: coords[0],
-      y: coords[1],
-      z: coords[2] || getHeightAt(coords[0], coords[1]) + 0.015,
-    });
-  }
-
-  // center the words feature positions 0:1
-  function center(words) {
-    var max = Number.POSITIVE_INFINITY,
-        min = Number.NEGATIVE_INFINITY,
-        domX = {min: max, max: min},
-        domY = {min: max, max: min},
-        domZ = {min: max, max: min};
-    // find the min, max of each dimension
-    for (var i=0; i<words.length; i++) {
-      var x = words[i][1],
-          y = words[i][2],
-          z = words[i][3] || 0;
-      if (x < domX.min) domX.min = x;
-      if (x > domX.max) domX.max = x;
-      if (y < domY.min) domY.min = y;
-      if (y > domY.max) domY.max = y;
-      if (z < domZ.min) domZ.min = z;
-      if (z > domZ.max) domZ.max = z;
-    }
-
-    var centered = [];
-    for (var i=0; i<words.length; i++) {
-      // case where user data has word + 3 positional dims
-      if (words[i].length == 4) {
-        centered.push([
-          words[i][0],
-          (words[i][1]-domX.min)/(domX.max-domX.min),
-          (words[i][2]-domY.min)/(domY.max-domY.min),
-          (words[i][3]-domZ.min)/(domZ.max-domZ.min),
-        ])
-      // case where user data has word + 2 positional dims
-      } else {
-        centered.push([
-          words[i][0],
-          (words[i][1]-x.min)/(x.max-x.min),
-          (words[i][2]-y.min)/(y.max-y.min),
-        ])
-      }
-    }
-    return centered;
-  }
-
-  /**
-  * Typeahaed
-  **/
-
-  function prepareTypeahead() {
-    input.addEventListener('keyup', function(e) {
-      clearTypeahead();
-      if (e.keyCode == 13 || e.target.value.length < 2) return;
-      var matches = Object.keys(wordToCoords).filter(function(w) {
-        return w.toLowerCase().indexOf(e.target.value.toLowerCase()) > -1;
-      });
-      var rendered = {}; // store the rendered objects to prevent cased dupes
-      for (var i=0; i<Math.min(50, matches.length); i++) {
-        if (!(matches[i].toLowerCase().trim() in rendered)) {
-          rendered[ matches[i].toLowerCase().trim() ] = true;
-          var elem = document.createElement('div');
-          elem.textContent = matches[i];
-          elem.onclick = function(str, e) {
-            input.value = str;
-            submit();
-          }.bind(this, matches[i]);
-          document.querySelector('#typeahead').appendChild(elem);
-        }
-      }
-    })
-
-    function clearTypeahead(e) {
-      typeahead.innerHTML = '';
-    }
-
-    function submit() {
-      var word = input.value;
-      if (!word) return;
-      input.value = word;
-      flyToWord(word);
-      clearTypeahead();
-    }
-
-    button.addEventListener('click', submit);
-    window.addEventListener('click', clearTypeahead);
-    input.addEventListener('keydown', function(e) {
-      if (e.keyCode == 13) submit();
-      else clearTypeahead();
-    });
-  }
-
-  function flyInCamera() {
-    TweenLite.to(camera.position, 3.5, {z: 0.23, ease: Power4.easeInOut,});
-  }
-
-  /**
-  * Main
-  **/
-
-  // style background
-  document.body.style.background = background;
-  // add resize listener
-  window.addEventListener('resize', onWindowResize);
-  // load the character map
-  var charMap = getCharMap();
-  // prepare the typeahead
-  prepareTypeahead();
-  // load heightmap data and render
-  getHeightmap(function(heightMapData) {
-    heightmap = heightMapData;
-    get('wordmap-grid.json', function(wordData) {
-      var words = JSON.parse(wordData);
-      words = center(words.slice(0, maxWords));
-      words.forEach(function(w) {
-        wordToCoords[w[0]] = w.length == 4
-          ? [w[1], w[2], [3]]
-          : [w[1], w[2]]
-      })
-      addPoints(words);
-      addWords(words);
-    })
-    render();
-    setTimeout(flyInCamera, 500);
-  })
-
-  </script>
+  <script src='js/three.min.js'></script>
+  <script src='js/trackball-controls.min.js'></script>
+  <script src='js/tweenlite.min.js'></script>
+  <script src='js/dat.gui.min.js'></script>
+  <script src='js/wordmap.js'></script>
 </body>
 </html>
