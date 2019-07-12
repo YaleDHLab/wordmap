@@ -25,9 +25,15 @@ setup (
     'gensim>=3.6.0',
     'gunicorn>=19.7.1',
     'matplotlib>=2.0.0',
-    'MulticoreTSNE>=0.1',
     'numpy>=1.15.1',
-    'yale_dhlab_rasterfairy>=1.0.3',
+    'scikit-learn>=0.21.2',
     'scipy>=1.2.1',
+    'umap-learn>=0.3.8',
+    'yale_dhlab_rasterfairy>=1.0.3',
   ],
+  entry_points={
+    'console_scripts': [
+      'wordmap=wordmap:parse',
+    ],
+},
 )
