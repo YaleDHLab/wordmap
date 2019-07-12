@@ -98,7 +98,7 @@ def plot_gensim_word2vec(model, max_words=100000):
   plot(words, df)
 
 
-def parse(encoding='utf8', size=100000, window=5, min_count=5, workers=4):
+def parse(encoding='utf8', size=100000, window=5, min_count=20, workers=4):
   '''
   Main method for parsing a glob of files passed on the command line
   '''
