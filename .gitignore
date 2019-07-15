@@ -4,8 +4,11 @@
 *.DS_Store
 *.gz
 *.egg-info
+*.model
 .ipynb_checkpoints
 clean.sh
 dist
 build
 __pycache__
+data
+web
