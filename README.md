@@ -2,7 +2,7 @@
 
 > Visualizing large collections of text data with WebGL
 
-![App preview](./web/assets/preview.png?raw=true)
+![App preview](./wordmap/web/assets/images/preview.png?raw=true)
 
 ## Installation
 
