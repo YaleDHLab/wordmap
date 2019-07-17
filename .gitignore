@@ -5,10 +5,11 @@
 *.gz
 *.egg-info
 *.model
+__pycache__
 .ipynb_checkpoints
 clean.sh
 dist
 build
-__pycache__
 data
 web
+models
