@@ -3,7 +3,6 @@ from gensim.models.callbacks import CallbackAny2Vec
 from sklearn.preprocessing import MinMaxScaler
 from distutils.dir_util import copy_tree
 from sklearn.manifold import TSNE
-from gensim.models import Word2Vec
 from collections import defaultdict
 from flask_cors import CORS
 from os.path import join
@@ -18,9 +17,9 @@ import warnings
 import gensim
 import joblib
 import codecs
+import glob2
 import copy
 import time
-import glob
 import json
 import os
 import re
@@ -47,7 +46,8 @@ class Manifest:
     self.strings = kwargs.get('strings', [])
     self.layouts = []
     for layout in self.args['layouts']:
-      for params in self.get_layout_params(layout):
+      for idx, params in enumerate(self.get_layout_params(layout)):
+        print(' * computing vertex positions', layout, 'layout', idx+1)
         l = Layout(layout=layout, params=params, df=self.df)
         self.layouts.append(l)
     self.write_web_assets()
@@ -91,6 +91,7 @@ class Manifest:
 
   def write_web_assets(self):
     '''Write all web assets needed to create a visualization'''
+    print(' * writing json assets')
     self.copy_web_template()
     self.make_directories()
     data_dir = os.path.join(self.target_dir, 'data')
@@ -114,6 +115,7 @@ class Layout:
     self.json = {}
     self.hyperparams = self.get_hyperparams()
     self.filename = self.get_filename()
+    self.cache_dir = os.path.join(cache_dir, self.layout)
     self.cache_path = self.get_cache_path()
     self.positions = self.get_positions(kwargs.get('df'))
 
@@ -131,7 +133,7 @@ class Layout:
 
   def get_cache_path(self):
     '''Get the path to the cache to which this layout will be written'''
-    return os.path.join(cache_dir, self.layout, self.filename)
+    return os.path.join(self.cache_dir, self.filename)
 
   def load_from_cache(self):
     '''Try to load this layout from the cache'''
@@ -144,6 +146,8 @@ class Layout:
     if not self.json:
       warnings.warn('Could not persist layout to cache; no JSON present')
     else:
+      if not os.path.exists(self.cache_dir):
+        os.makedirs(self.cache_dir)
       with open(self.cache_path, 'w') as out:
         json.dump(self.json, out)
 
@@ -214,49 +218,74 @@ class EpochLogger(CallbackAny2Vec):
     print('   * completed {0} Word2Vec epochs'.format(self.epoch_count))
 
 
-def create_word2vec_model(args):
-  '''
-  Given a glob of text files, create a word2vec model with gensim and save to disk
-  '''
-  # inform the user which files are being processed
-  files = glob.glob(args['texts'])
-  display_files = files[:10] + ['...'] if len(files) >= 10 else files
-  sep = '    \n    '
-  print(' * preparing to parse {0} files:{1}'.format(len(files), sep + sep.join(display_files)))
-  # generate and save the word2vec model for the user's input files
-  word_lists = []
-  for i in files:
-    with codecs.open(i, 'r', args['encoding']) as f:
-      word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
-  print(' * building Word2Vec model')
-  epoch_logger = EpochLogger()
-  model = Word2Vec(word_lists,
-    size=args['size'],
-    window=args['window'],
-    min_count=args['min_count'],
-    workers=args['workers'],
-    callbacks=[epoch_logger],
-  )
-  model.save(os.path.join(cache_dir, 'word2vec', args['model_name']))
-  return model
+class Word2Vec:
+  def __init__(self, *args, **kwargs):
+    self.args = kwargs.get('args', {})
+    self.texts = glob2.glob(self.args['texts'])
+    self.cache_dir = os.path.join(kwargs.get('cache_dir', cache_dir), 'word2vec')
+    self.cache_path = self.get_cache_path()
+    self.load_model()
+    self.plot()
 
+  def get_cache_path(self):
+    '''Return the path wherein this model will be persisted'''
+    return os.path.join(self.cache_dir, self.args.get('model_name'))
 
-def plot_gensim_word2vec(args, model):
-  '''
-  Project the words in a gensim word2vec model into 2D space
-  and persist the resulting data structures for viewing.
+  def load_from_cache(self):
+    '''Load a saved gensim model from the model cache'''
+    if os.path.exists(self.args['model']):
+      return gensim.models.Word2Vec.load(self.args['model'])
 
-  Parameters
-  ----------
-  model : gensim.models.word2vec.Word2Vec
-    A gensim Word2Vec model, e.g. as constructed via the
-    gensim.models.word2vec.Word2Vec or KeyedVectors.load_word2vec_format constructors
-  '''
-  words = model.wv.index2entity
-  if args['max_words']:
-    words = words[:args['max_words']]
-  df = np.array([model.wv[w] for w in words])
-  manifest = Manifest(args=args, df=df, strings=words)
+  def save_to_cache(self):
+    '''Save self.model to the model cache'''
+    if not os.path.exists(self.cache_dir):
+      os.makedirs(self.cache_dir)
+    self.model.save(self.cache_path)
+
+  def load_model(self):
+    '''Return a gensim Word2Vec model (from the cache if possible)'''
+    if self.args.get('model', None):
+      self.model = self.load_from_cache()
+    else:
+      self.model = self.create_model()
+
+  def create_model(self):
+    '''Create a gensim Word2Vec model with the input data'''
+    self.log_files()
+    self.model = gensim.models.Word2Vec(self.get_word_lists(),
+      size = self.args['size'],
+      window = self.args['window'],
+      min_count = self.args['min_count'],
+      workers = self.args['workers'],
+      callbacks = [EpochLogger()],
+    )
+    self.save_to_cache()
+    return self.model
+
+  def log_files(self):
+    '''Print a note indicating the files this Word2Vec instance will process'''
+    display_files = self.texts[:10] + ['...'] if len(self.texts) >= 10 else self.texts
+    sep = '    \n    '
+    print(' * preparing to parse {0} files:{1}'.format(
+      len(self.texts),
+      sep + sep.join(display_files))
+    )
+
+  def get_word_lists(self):
+    '''Return a 2d list of words in self.files'''
+    word_lists = []
+    for i in self.texts:
+      with codecs.open(i, 'r', self.args['encoding']) as f:
+        word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
+    return word_lists
+
+  def plot(self):
+    '''Create a plot from this model'''
+    words = self.model.wv.index2entity
+    if self.args['max_words']:
+      words = words[:self.args['max_words']]
+    df = np.array([self.model.wv[w] for w in words])
+    manifest = Manifest(args=self.args, df=df, strings=words)
 
 
 def serve():
@@ -306,13 +335,13 @@ def parse():
   '''
   Main method for parsing a glob of files passed on the command line
   '''
-  parser = argparse.ArgumentParser(description='Transform text files into a large WebGL Visualization')
+  parser = argparse.ArgumentParser(description='Transform text data into a large WebGL Visualization')
   # input data parameters
   parser.add_argument('--texts', type=str, help='A glob of text files to process', required=False)
   parser.add_argument('--encoding', type=str, default='utf8', help='The encoding of input files', required=False)
   # word2vec model parameters
   parser.add_argument('--model', type=str, help='Path to a Word2Vec model to load', required=False)
-  parser.add_argument('--model_name', type=str, default='{}.w2v.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
+  parser.add_argument('--model_name', type=str, default='{}.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
   parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in Word2Vec vectors', required=False)
   parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating Word2Vec model', required=False)
   parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the Word2Vec model', required=False)
@@ -334,14 +363,7 @@ def parse():
   # validate args
   validate_user_args(args)
   # find or create a word2vec model
-  if args['model']:
-    print(' * loading Word2Vec model', args['model'])
-    model = Word2Vec.load(args['model'])
-  else:
-    print(' * creating Word2Vec model')
-    model = create_word2vec_model(args)
-  # plot the created or loaded model
-  plot_gensim_word2vec(args, model)
+  model = Word2Vec(args=args)
 
 
 if __name__ == '__main__':
