@@ -23,6 +23,7 @@ setup (
     'Flask>=0.12.2',
     'Flask-Cors>=3.0.3',
     'gensim>=3.6.0',
+    'glob2>=0.6',
     'gunicorn>=19.7.1',
     'ivis>=1.2.3',
     'joblib>=0.13.2',
