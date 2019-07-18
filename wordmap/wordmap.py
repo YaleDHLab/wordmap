@@ -1,32 +1,207 @@
 from flask import Flask, jsonify, request, send_from_directory, render_template
 from gensim.models.callbacks import CallbackAny2Vec
+from sklearn.preprocessing import MinMaxScaler
 from distutils.dir_util import copy_tree
 from sklearn.manifold import TSNE
 from gensim.models import Word2Vec
+from collections import defaultdict
 from flask_cors import CORS
 from os.path import join
+from ivis import Ivis
 from umap import UMAP
 import numpy as np
 import rasterfairy
+import itertools
 import calendar
 import argparse
+import warnings
 import gensim
+import joblib
 import codecs
+import copy
 import time
 import glob
 import json
-import sys
 import os
 import re
 
 # Store a reference to the location of this package
-path = os.path.dirname(os.path.realpath(__file__))
-
-# Store a reference to the location of the calling agent
-cwd = os.getcwd()
+template_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'web')
 
 # Store a reference to the location to which web assets will be written
-web_target = join(cwd, 'web')
+target_dir = join(os.getcwd(), 'web')
+
+# Store a reference to the location where models will be cached
+cache_dir = 'models'
+
+# Global list of all possible layout options
+layouts = ['ivis', 'umap', 'tsne', 'grid']
+
+
+class Manifest:
+  def __init__(self, *args, **kwargs):
+    self.template_dir = kwargs.get('template_dir', template_dir)
+    self.target_dir = kwargs.get('target_dir', target_dir)
+    self.args = kwargs.get('args', {})
+    self.df = kwargs.get('df', [[]])
+    self.strings = kwargs.get('strings', [])
+    self.layouts = []
+    for layout in self.args['layouts']:
+      for params in self.get_layout_params(layout):
+        l = Layout(layout=layout, params=params, df=self.df)
+        self.layouts.append(l)
+    self.write_web_assets()
+
+  def get_layout_params(self, layout):
+    '''Find the set of all hyperparameters for each layout'''
+    l = [] # store for the list of param dicts for this layout
+    d = {i: self.args[i] for i in self.args if i.startswith(layout)}
+    for i in list(itertools.product(*[[{i:j} for j in d[i]] for i in d])):
+      a = copy.deepcopy(self.args)
+      for j in i:
+        a.update(j)
+      l.append(a)
+    return l
+
+  def make_directories(self):
+    '''Create the directories to which outputs will be written'''
+    for i in self.layouts:
+      # make the layout dir for the web app
+      if not os.path.exists(os.path.join(self.target_dir, 'data', 'layouts', i.layout)):
+        os.makedirs(os.path.join(self.target_dir, 'data', 'layouts', i.layout))
+      # make the dir where the layout will be cached
+      p = os.path.join(cache_dir, i.layout)
+      if not os.path.exists(p):
+        os.makedirs(p)
+
+  def copy_web_template(self):
+    '''Copy the base web asset files from self.directory to ./web'''
+    if not os.path.exists(self.target_dir):
+      copy_tree(self.template_dir, target_dir)
+
+  def get_manifest_json(self):
+    '''Create a manifest.json file outlining the layout options availble'''
+    d = defaultdict(list)
+    for i in self.layouts:
+      d[i.layout].append({
+        'filename': i.filename,
+        'params': i.params,
+      })
+    return d
+
+  def write_web_assets(self):
+    '''Write all web assets needed to create a visualization'''
+    self.copy_web_template()
+    self.make_directories()
+    data_dir = os.path.join(self.target_dir, 'data')
+    # write the string data
+    with open(os.path.join(data_dir, 'texts.json'), 'w') as out:
+      json.dump(self.strings, out)
+    # write the individual layout files
+    for i in self.layouts:
+      with open(os.path.join(data_dir, 'layouts', i.layout, i.filename), 'w') as out:
+        json.dump(i.json, out)
+    # write the full manifest json
+    with open(os.path.join(data_dir, 'manifest.json'), 'w') as out:
+      json.dump(self.get_manifest_json(), out)
+
+
+class Layout:
+  def __init__(self, *args, **kwargs):
+    self.layout = kwargs.get('layout')
+    self.params = kwargs.get('params')
+    self.float_precision = kwargs.get('float_precision', 2)
+    self.json = {}
+    self.hyperparams = self.get_hyperparams()
+    self.filename = self.get_filename()
+    self.cache_path = self.get_cache_path()
+    self.positions = self.get_positions(kwargs.get('df'))
+
+  def get_hyperparams(self):
+    '''Return a dict of k/v params for this specific layout type'''
+    return {k: self.params[k] for k in self.params if k.startswith(self.layout)}
+
+  def get_filename(self):
+    '''Get the filename to use when saving this layout to disk as JSON'''
+    fn = self.layout
+    for k in self.hyperparams:
+      fn += '{0}-{1}-'.format(k, self.hyperparams[k])
+    fn = fn.rstrip('-') + '.json'
+    return fn
+
+  def get_cache_path(self):
+    '''Get the path to the cache to which this layout will be written'''
+    return os.path.join(cache_dir, self.layout, self.filename)
+
+  def load_from_cache(self):
+    '''Try to load this layout from the cache'''
+    if os.path.exists(self.cache_path):
+      with open(self.cache_path) as f:
+        return json.load(f)
+
+  def write_to_cache(self):
+    '''Write the model to the cache for faster i/o in the future'''
+    if not self.json:
+      warnings.warn('Could not persist layout to cache; no JSON present')
+    else:
+      with open(self.cache_path, 'w') as out:
+        json.dump(self.json, out)
+
+  def get_model(self):
+    if self.layout == 'ivis':
+      return Ivis(
+        model = self.params.get('ivis_model'),
+        embedding_dims = self.params.get('n_components'),
+        k = self.params.get('ivis_k'),
+        precompute = True,
+        verbose = self.params.get('verbose'),
+        annoy_index_path = self.params.get('ivis_annoy_index_path'),
+      )
+    elif self.layout == 'umap':
+      return UMAP(
+        n_components = self.params.get('n_components'),
+        verbose = self.params.get('verbose'),
+        n_neighbors = self.params.get('umap_n_neighbors'),
+        min_dist = self.params.get('umap_min_dist'),
+      )
+    elif self.layout == 'tsne':
+      return TSNE(
+        n_components = params.get('n_components'),
+        verbose = params.get('verbose'),
+      )
+    elif self.layout == 'grid':
+      # monkeypatch fit_transform method into rasterfairy for consistent api
+      def fit_transform(X):
+        return rasterfairy.transformPointCloud2D(X[:,:2])[0]
+      clf = rasterfairy
+      setattr(clf, 'fit_transform', fit_transform)
+      return clf
+    else:
+      print('Warning: received request for unsupported classifier')
+
+  def get_positions(self, df):
+    '''Find the vertex positions for the user-provided data'''
+    cache = self.load_from_cache()
+    if cache:
+      self.json = cache
+    else:
+      self.json = {
+        'layout': self.layout,
+        'filename': self.filename,
+        'params': self.params,
+        'positions': self.round(self.get_model().fit_transform(df).tolist()),
+      }
+      self.write_to_cache()
+
+  def round(self, arr):
+    '''Round the values in a 2d arr'''
+    rounded = []
+    for i in arr:
+      l = []
+      for j in i:
+        l.append(round(j, self.float_precision))
+      rounded.append(l)
+    return rounded
 
 
 class EpochLogger(CallbackAny2Vec):
@@ -43,31 +218,26 @@ def create_word2vec_model(args):
   '''
   Given a glob of text files, create a word2vec model with gensim and save to disk
   '''
-  if not args.texts:
-    print('\nPlease identify a glob of files to process:\n')
-    print('wordmap --texts "my_data/*.txt"')
-    sys.exit()
   # inform the user which files are being processed
-  files = glob.glob(args.texts)
+  files = glob.glob(args['texts'])
   display_files = files[:10] + ['...'] if len(files) >= 10 else files
   sep = '    \n    '
   print(' * preparing to parse {0} files:{1}'.format(len(files), sep + sep.join(display_files)))
   # generate and save the word2vec model for the user's input files
-  print(' * cleaning input files')
   word_lists = []
   for i in files:
-    with codecs.open(i, 'r', args.encoding) as f:
+    with codecs.open(i, 'r', args['encoding']) as f:
       word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
   print(' * building Word2Vec model')
   epoch_logger = EpochLogger()
   model = Word2Vec(word_lists,
-    size=args.size,
-    window=args.window,
-    min_count=args.min_count,
-    workers=args.workers,
+    size=args['size'],
+    window=args['window'],
+    min_count=args['min_count'],
+    workers=args['workers'],
     callbacks=[epoch_logger],
   )
-  model.save(args.model_name)
+  model.save(os.path.join(cache_dir, 'word2vec', args['model_name']))
   return model
 
 
@@ -83,111 +253,53 @@ def plot_gensim_word2vec(args, model):
     gensim.models.word2vec.Word2Vec or KeyedVectors.load_word2vec_format constructors
   '''
   words = model.wv.index2entity
-  if args.max_words:
-    words = words[:args.max_words]
+  if args['max_words']:
+    words = words[:args['max_words']]
   df = np.array([model.wv[w] for w in words])
-  if len(words) != df.shape[0]:
-    print('! Warning: the number of words != number of elements in dataframe')
-    print('! Number of words:', len(words))
-    print('! Number of elements in dataframe:', df.shape[0])
-  plot(args, words, df)
-
-
-def plot(args, words, df):
-  '''
-  Project word vectors in a numpy array into 2D space
-  and persist the resulting data structures for viewing.
-
-  Parameters
-  ----------
-  words : array of strings
-    A list of strings to be visualized. These could be single words
-    or multiword strings.
-  df : numpy.ndarray
-    This dataframe should have shape len(words), k, where k is some
-    integer. Each row in the dataframe should indicate the position
-    of a word in some vector space (e.g. Word2Vec, NMF, GloVe, LDA...)
-  n_components : int
-    The number of dimensions to use in the embedding space
-  max_words : int
-    The maximum number of words to include in the visualization. The more
-    words, the greater the number of primitives WebGL has to draw (each letter
-    of each word is drawn as a single GL_POINT).
-  '''
-  projections = []
-  if 'umap' in args.layouts:
-    p = UMAP(
-      n_components=args.n_components,
-      verbose=args.verbose,
-      n_neighbors=args.n_neighbors,
-      min_dist=args.min_dist,
-    ).fit_transform(df)
-    projections.append({
-      'words': words,
-      'name': 'umap',
-      'positions': np.around(p, 2).tolist(),
-    })
-
-  if 'tsne' in args.layouts:
-    p = TSNE(n_components=args.n_components, verbose=args.verbose).fit_transform(df)
-    projections.append({
-      'words': words,
-      'name': 'tsne',
-      'positions': np.around(p, 2).tolist(),
-    })
-
-  if 'grid' in args.layouts:
-    if not projections:
-      print('Please specify one or more of the following layouts as a basis for the grid positions: umap tsne')
-      sys.exit()
-    df = np.vstack(projections[0]['positions'])[:,:2]
-    p = rasterfairy.transformPointCloud2D(df)
-    p = [[int(i[0]), int(i[1])] for idx, i in enumerate(p[0])]
-    # jitter the grid positions slightly to prevent/discourage overlap
-    for i in p:
-      if i[0]%2==0:
-        i[1] += 0.5
-    projections.append({
-      'words': projections[0]['words'],
-      'name': 'grid',
-      'positions': p,
-    })
-
-  # persist the results to disk
-  prepare_web_assets()
-  out_path = join(web_target, 'wordmap-layouts.json')
-  with open(out_path, 'w') as out:
-    json.dump(projections, out)
-
-
-def prepare_web_assets():
-  '''
-  Create ./web with the assets required to visualize input text data
-  '''
-  if not os.path.exists(web_target):
-    copy_tree(join(path, 'web'), web_target)
+  manifest = Manifest(args=args, df=df, strings=words)
 
 
 def serve():
   '''
   Method to serve the content in ./web
   '''
-  print(' * serving assets from', web_target)
-  app = Flask(__name__, static_folder=web_target, template_folder=web_target)
+  print(' * serving assets from', target_dir)
+  app = Flask(__name__, static_folder=target_dir, template_folder=target_dir)
   CORS(app)
-
   # requests for static index file
   @app.route('/')
   def index():
     return render_template('index.html')
-
   # requests for static assets
   @app.route('/<path:path>')
   def asset(path):
-    return send_from_directory(web_target, path)
-
+    return send_from_directory(target_dir, path)
   # run the server
   app.run(host= '0.0.0.0', port=7082)
+
+
+def validate_user_args(args):
+  '''
+  Run any necessary checks on the user-provided arguments
+  '''
+  # ensure the user asks for 2 or 3 embedding dimensions
+  if args['n_components'] not in [2,3]:
+    raise Exception('Please set n_components to 2 or 3')
+  # if the user requested a grid layout, make sure we have a non-grid layout
+  if args['layouts'] == ['grid']:
+    raise Exception('Please specify one or more layouts as a basis for the grid positions: umap tsne')
+  # make sure the user provided a pretrained model or text data for a new model
+  if not any([args['model'], args['texts']]):
+    raise Exception('Please provide either a --model or --texts argument')
+  # check if the user asked for any invalid layouts
+  invalid_layouts = [i for i in args['layouts'] if i not in layouts]
+  if any(invalid_layouts):
+    warnings.warn('Requested layouts are not available:', invalid_layouts)
+  args['layouts'] = [i for i in args['layouts'] if i in layouts]
+  # ensure grid is the last layout in the layout list
+  if 'grid' in args['layouts']:
+    args['layouts'].remove('grid')
+    args['layouts'].append('grid')
 
 
 def parse():
@@ -195,26 +307,36 @@ def parse():
   Main method for parsing a glob of files passed on the command line
   '''
   parser = argparse.ArgumentParser(description='Transform text files into a large WebGL Visualization')
+  # input data parameters
   parser.add_argument('--texts', type=str, help='A glob of text files to process', required=False)
   parser.add_argument('--encoding', type=str, default='utf8', help='The encoding of input files', required=False)
-  parser.add_argument('--max_words', type=int, default=100000, help='Maximum number of words to include in visualization', required=False)
-  parser.add_argument('--layouts', nargs='+', default=['umap', 'grid'], choices=['umap', 'tsne', 'grid'])
-  parser.add_argument('--n_components', type=int, default=2, choices=[2, 3])
+  # word2vec model parameters
   parser.add_argument('--model', type=str, help='Path to a Word2Vec model to load', required=False)
-  parser.add_argument('--model_name', type=str, default='{}.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
-  parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
+  parser.add_argument('--model_name', type=str, default='{}.w2v.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
   parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in Word2Vec vectors', required=False)
   parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating Word2Vec model', required=False)
   parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the Word2Vec model', required=False)
   parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing user data', required=False)
+  # layout parameters
+  parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
+  parser.add_argument('--max_words', type=int, default=100000, help='Maximum number of words to include in visualization', required=False)
+  parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
+  parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
-  parser.add_argument('--n_neighbors', type=int, default=10, help='The n_neighbors parameter for UMAP layouts')
-  parser.add_argument('--min_dist', type=float, default=0.5, help='The min_dist parameter for UMAP layouts')
-  args = parser.parse_args()
+  # layout parameters - umap
+  parser.add_argument('--umap_n_neighbors', type=int, nargs='+', default=[10], help='The n_neighbors parameter for UMAP layouts')
+  parser.add_argument('--umap_min_dist', type=float, nargs='+', default=[0.5], help='The min_dist parameter for UMAP layouts')
+  # layout parameters - ivis
+  parser.add_argument('--ivis_model', type=str, default='maaten', help='The model parameter for ivis')
+  parser.add_argument('--ivis_annoy_index_path', type=str, default=os.path.join(cache_dir, 'ivis', 'annoy.index'), help='The path to the annoy index used by ivis')
+  parser.add_argument('--ivis_k', type=int, default=[15], help='The k parameter for ivis layouts')
+  args = vars(parser.parse_args())
+  # validate args
+  validate_user_args(args)
   # find or create a word2vec model
-  if args.model:
-    print(' * loading Word2Vec model', args.model)
-    model = Word2Vec.load(args.model)
+  if args['model']:
+    print(' * loading Word2Vec model', args['model'])
+    model = Word2Vec.load(args['model'])
   else:
     print(' * creating Word2Vec model')
     model = create_word2vec_model(args)

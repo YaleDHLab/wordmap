@@ -1,9 +1,6 @@
-from __future__ import absolute_import
-
-from wordmap.wordmap import parse, \
-  plot, \
+from wordmap.wordmap import EpochLogger, \
+  parse, \
   plot_gensim_word2vec, \
-  prepare_web_assets, \
   serve
 
 import wordmap.geometry
