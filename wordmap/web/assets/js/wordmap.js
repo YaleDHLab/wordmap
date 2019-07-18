@@ -7,13 +7,13 @@ var BA = THREE.BufferAttribute,
 function Wordmap() {
   // user-parameters
   this.wordScalar = 0.0003; // sizes up words
-  this.heightScalar = 0.002; // controls mountain height
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#fff'; // background color
   this.color = '#000'; // text color
   this.font = 'Monospace'; // font family
   this.mipmap = true; // toggles mipmaps in texture
   this.layout = null; // the currently selected layout
+  this.heightScalar = 0.002; // controls mountain height
   // internal static
   this.size = 64; // size of each character on canvas
   this.initialQuery = 'stars'; // the default search term
@@ -307,35 +307,46 @@ Wordmap.prototype.init = function() {
 
 
 Wordmap.prototype.createGUI = function() {
-  this.gui = new dat.GUI({hideable: false})
+  this.gui = {};
 
-  this.gui.add(this, 'layout', Object.keys(this.data.layouts))
+  this.gui.root = new dat.GUI({hideable: false})
+
+  // layout folder
+  this.gui.layoutFolder = this.gui.root.addFolder('Layout');
+
+  this.gui.layout = this.gui.layoutFolder.add(this, 'layout', Object.keys(this.data.layouts))
     .name('layout')
     .onFinishChange(this.updateLayout.bind(this))
 
-  this.gui.add(this, 'wordScalar', 0.0, 0.005)
-    .name('font size')
-    .onFinishChange(this.updateLayout.bind(this))
-
-  this.gui.add(this, 'heightScalar', 0.0, 0.003)
+  this.gui.heightmap = this.gui.layoutFolder.add(this, 'heightScalar', 0.0, 0.003)
     .name('mountain')
     .onFinishChange(this.updateLayout.bind(this))
 
-  this.gui.addColor(this, 'background')
+  // style folder
+  this.gui.styleFolder = this.gui.root.addFolder('Style');
+
+  this.gui.wordScalar = this.gui.styleFolder.add(this, 'wordScalar', 0.0, 0.005)
+    .name('font size')
+    .onFinishChange(this.updateLayout.bind(this))
+
+  this.gui.background = this.gui.styleFolder.addColor(this, 'background')
     .name('background')
     .onChange(this.setBackgroundColor.bind(this))
 
-  this.gui.add(this, 'color', ['#fff', '#000'])
+  this.gui.color = this.gui.styleFolder.add(this, 'color', ['#fff', '#000'])
     .name('color')
     .onChange(this.updateTexture.bind(this))
 
-  this.gui.add(this, 'font', this.fonts)
+  this.gui.font = this.gui.styleFolder.add(this, 'font', this.fonts)
     .name('font')
     .onChange(this.updateTexture.bind(this))
 
-  this.gui.add(this, 'mipmap')
+  this.gui.mipmap = this.gui.styleFolder.add(this, 'mipmap')
     .name('mipmap')
     .onChange(this.updateTexture.bind(this))
+
+  this.gui.layoutFolder.open();
+  this.gui.styleFolder.open();
 }
 
 
