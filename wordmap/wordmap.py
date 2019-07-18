@@ -36,7 +36,6 @@ cache_dir = 'models'
 # Global list of all possible layout options
 layouts = ['ivis', 'umap', 'tsne', 'grid']
 
-
 class Manifest:
   def __init__(self, *args, **kwargs):
     self.template_dir = kwargs.get('template_dir', template_dir)
@@ -47,7 +46,7 @@ class Manifest:
     self.layouts = []
     for layout in self.args['layouts']:
       for idx, params in enumerate(self.get_layout_params(layout)):
-        print(' * computing vertex positions', layout, 'layout', idx+1)
+        print(' * computing vertex positions for', layout, 'layout', idx+1)
         l = Layout(layout=layout, params=params, df=self.df)
         self.layouts.append(l)
     self.write_web_assets()
@@ -61,7 +60,7 @@ class Manifest:
       for j in i:
         a.update(j)
       l.append(a)
-    return l
+    return l if l else [self.args] # handle layout without named params (e.g. grid)
 
   def make_directories(self):
     '''Create the directories to which outputs will be written'''
@@ -85,7 +84,7 @@ class Manifest:
     for i in self.layouts:
       d[i.layout].append({
         'filename': i.filename,
-        'params': i.params,
+        'params': i.hyperparams,
       })
     return d
 
@@ -121,15 +120,19 @@ class Layout:
 
   def get_hyperparams(self):
     '''Return a dict of k/v params for this specific layout type'''
-    return {k: self.params[k] for k in self.params if k.startswith(self.layout)}
+    d = {}
+    for k, v in self.params.items():
+      if k.startswith(self.layout):
+        k = k.replace('{0}_'.format(self.layout), '')
+        d[k] = v
+    return d
 
   def get_filename(self):
     '''Get the filename to use when saving this layout to disk as JSON'''
-    fn = self.layout
+    fn = self.layout + '_'
     for k in self.hyperparams:
       fn += '{0}-{1}-'.format(k, self.hyperparams[k])
-    fn = fn.rstrip('-') + '.json'
-    return fn
+    return fn.rstrip('-').rstrip('_') + '.json'
 
   def get_cache_path(self):
     '''Get the path to the cache to which this layout will be written'''
@@ -170,8 +173,8 @@ class Layout:
       )
     elif self.layout == 'tsne':
       return TSNE(
-        n_components = params.get('n_components'),
-        verbose = params.get('verbose'),
+        n_components = self.params.get('n_components'),
+        verbose = self.params.get('verbose'),
       )
     elif self.layout == 'grid':
       # monkeypatch fit_transform method into rasterfairy for consistent api
@@ -192,7 +195,7 @@ class Layout:
       self.json = {
         'layout': self.layout,
         'filename': self.filename,
-        'params': self.params,
+        'hyperparams': self.hyperparams,
         'positions': self.round(self.get_model().fit_transform(df).tolist()),
       }
       self.write_to_cache()
@@ -364,7 +367,6 @@ def parse():
   validate_user_args(args)
   # find or create a word2vec model
   model = Word2Vec(args=args)
-
 
 if __name__ == '__main__':
   parse()
