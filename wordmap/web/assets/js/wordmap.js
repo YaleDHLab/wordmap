@@ -16,6 +16,7 @@ function Wordmap() {
   this.layout = null; // the currently selected layout
   // internal static
   this.size = 64; // size of each character on canvas
+  this.initialQuery = 'stars'; // the default search term
   // internal state
   this.state = {
     flying: false, // bool indicating whether we're flying camera
@@ -298,6 +299,7 @@ Wordmap.prototype.init = function() {
       this.render();
       setTimeout(this.flyInCamera.bind(this), 500);
       window.addEventListener('resize', this.onWindowResize.bind(this));
+      document.querySelector('#search').value = this.initialQuery;
       this.createGUI();
     }.bind(this))
   }.bind(this))
