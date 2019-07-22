@@ -5,13 +5,14 @@ var BA = THREE.BufferAttribute,
 
 
 function Wordmap() {
-  // user-parameters
+  // style parameters
   this.wordScalar = 0.0003; // sizes up words
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#fff'; // background color
   this.color = '#000'; // text color
   this.font = 'Monospace'; // font family
   this.mipmap = true; // toggles mipmaps in texture
+  // layout parameters
   this.layout = null; // the currently selected layout
   this.heightScalar = 0.002; // controls mountain height
   // internal static
@@ -23,22 +24,26 @@ function Wordmap() {
     clock: null, // clock to measure how long we've been flying camera
     transitioning: false, // bool indicating whether layout is transitioning
     transitionQueued: false, // bool indicating whether to run another layout transition
+    loadProgres: {}, // map from asset identifier to load progress
+    loaded: {}, // list of strings identifying initial assets loaded
   }
   // data
   this.data = {
-    input: null,
-    words: [],
-    layouts: {},
+    words: [], // list of strings to visualize
+    layouts: [],
     heightmap: {},
     characters: {},
+    selected: {}, // currently selected layout
+    previous: {}, // previously selected layout
   }
-  // font options
+  // font options (each must be present in web/assets/fonts)
   this.fonts = [
     'Monospace',
     'VT323',
+    'Nanum',
   ];
   // initialize
-  this.init();
+  this.loadAssets();
 }
 
 
@@ -46,16 +51,15 @@ function Wordmap() {
 * Scene
 **/
 
-
 Wordmap.prototype.createScene = function() {
-  // generate a scene object
+  // scene
   var scene = new THREE.Scene();
 
-  // generate a camera
+  // camera
   var aspectRatio = window.innerWidth / window.innerHeight;
   var camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.001, 10);
 
-  // generate a renderer
+  // renderer
   var renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
   renderer.sortObjects = false; // make scene.add order draw order
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -63,7 +67,7 @@ Wordmap.prototype.createScene = function() {
   renderer.domElement.id = 'gl-scene';
   document.body.appendChild(renderer.domElement);
 
-  // generate controls
+  // controls
   var controls = new THREE.TrackballControls(camera, renderer.domElement);
   controls.zoomSpeed = 0.05;
   controls.panSpeed = 0.1;
@@ -93,17 +97,19 @@ Wordmap.prototype.setInitialCameraPosition = function() {
 
 
 Wordmap.prototype.render = function() {
+  // draw the scene
   requestAnimationFrame(this.render.bind(this));
   this.renderer.render(this.scene, this.camera);
   this.controls.update();
   if (this.state.transitionQueued) {
     this.state.transitionQueued = false;
-    this.updateLayout();
+    this.setLayout();
   }
 }
 
 
 Wordmap.prototype.onWindowResize = function() {
+  // resize the canvas when the scene resizes
   this.camera.aspect = window.innerWidth / window.innerHeight;
   this.camera.updateProjectionMatrix();
   this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -112,45 +118,23 @@ Wordmap.prototype.onWindowResize = function() {
 
 
 /**
-* Character canvas
+* Loaders
 **/
 
-Wordmap.prototype.setCharacters = function() {
-  var canvas = document.createElement('canvas'),
-      ctx = canvas.getContext('2d'),
-      charToCoords = {},
-      yOffset = -0.25, // offset to draw full letters w/ baselines...
-      xOffset = 0.05; // offset to draw full letter widths
-  canvas.width = this.size * 16; // * 16 because we want 16**2 = 256 letters
-  canvas.height = this.size * 16; // must set size before setting font size
-  canvas.id = 'letter-canvas';
-  ctx.font = this.size + 'px ' + this.font;
-  // draw the letters on the canvas
-  ctx.fillStyle = this.color;
-  for (var x=0; x<16; x++) {
-    for (var y=0; y<16; y++) {
-      var char = String.fromCharCode((x*16) + y);
-      charToCoords[char] = {x: x, y: y};
-      ctx.fillText(char, (x+xOffset)*this.size, yOffset*this.size+(y+1)*this.size);
-    }
-  }
-  // build a three canvas with the canvas
-  var tex = new THREE.Texture(canvas);
-  tex.flipY = false;
-  tex.needsUpdate = true;
-  // store the character map on the instance
-  this.data.characters = {
-    map: charToCoords,
-    tex: tex,
-  }
+Wordmap.prototype.loadManifest = function() {
+  // load manifest file with all available layouts and initialize first layout
+  get('data/manifest.json', function(data) {
+    this.data.manifest = JSON.parse(data);
+    this.data.layouts = Object.keys(this.data.manifest);
+    // store this asset in loaded assets and render if ready
+    this.state.loaded['manifest'] = true;
+    this.initializeIfLoaded();
+  }.bind(this))
 }
 
 
-/**
-* Heightmap canvas
-**/
-
-Wordmap.prototype.getHeightmap = function(cb) {
+Wordmap.prototype.loadHeightmap = function() {
+  // load an image for setting 3d vertex positions
   var img = new Image();
   img.crossOrigin = 'Anonymous';
   img.onload = function() {
@@ -159,42 +143,169 @@ Wordmap.prototype.getHeightmap = function(cb) {
     canvas.width = img.width;
     canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
-    cb(ctx.getImageData(0,0, img.width, img.height));
-  }
+    this.data.heightmap = ctx.getImageData(0,0, img.width, img.height);
+    // store this asset in loaded assets and render if ready
+    this.state.loaded['heightmap'] = true;
+    this.initializeIfLoaded();
+  }.bind(this)
   img.src = 'assets/images/heightmap.jpg';
 }
 
 
-/**
-* Font files
-**/
-
 Wordmap.prototype.loadFonts = function() {
-  var self = this;
-  function loadIthFont(i) {
-    get('assets/fonts/' + self.fonts[i] + '.ttf', function() {
-      var elem = document.createElement('style'),
-          font = self.fonts[i],
-          s =  '@font-face {font-family:"' + self.fonts[i] + '"';
-          s += ';src:url(assets/fonts/' + self.fonts[i] + '.ttf) format("truetype")};'
-      elem.innerHTML = s;
-      document.body.appendChild(elem);
-      document.querySelector('#font-target').style.fontFamily = self.fonts[i];
-      // load the next font if necessary
-      if (i < self.fonts.length-1) {
-        loadIthFont(i+1);
-      }
-    })
-  }
-  loadIthFont(1); // start loading from the 2nd font, as first is a default
+  // load all fonts in this.fonts after the first (which is built into browser)
+  for (var i=1; i<this.fonts.length; i++) this.loadFont(this.fonts[i]);
+}
+
+
+Wordmap.prototype.loadFont = function(font) {
+  // load a .ttf font in web/assets/fonts
+  get('assets/fonts/' + font + '.ttf', function() {
+    var elem = document.createElement('style'),
+        s =  '@font-face {font-family:"' + font + '"';
+        s += ';src:url("assets/fonts/' + font + '.ttf") format("truetype")};';
+    elem.innerHTML = s;
+    document.body.appendChild(elem);
+    var elem = document.createElement('div');
+    elem.textContent = 'hello';
+    elem.style.fontFamily = font;
+    elem.id = 'font-' + font;
+    document.querySelector('#font-target').appendChild(elem);
+  })
+}
+
+
+Wordmap.prototype.loadTexts = function() {
+  get('data/texts.json', function(data) {
+    this.data.texts = JSON.parse(data);
+    // store this asset in loaded assets and render if ready
+    this.state.loaded['texts'] = true;
+    this.initializeIfLoaded();
+  }.bind(this))
 }
 
 
 /**
-* Geometry
+* Initialize Scene
 **/
 
-Wordmap.prototype.addWords = function() {
+Wordmap.prototype.loadAssets = function() {
+  // load required assets; the scene will render when all are loaded
+  this.setCharacterCanvas();
+  this.setBackgroundColor();
+  this.loadFonts();
+  this.loadManifest();
+  this.loadHeightmap();
+  this.loadTexts();
+  this.createScene();
+  this.setInitialCameraPosition();
+  this.render();
+}
+
+
+Wordmap.prototype.initializeIfLoaded = function() {
+  // set the initial layout state and render the initial layout
+  if (!this.allAssetsLoaded()) return;
+  // set the initial layout state and add the mesh to the scene
+  this.layout = this.data.layouts[0];
+  // initialize the gui to which we'll add layout hyperparms
+  this.createGui();
+  // set the hyperparams for the current layout
+  this.setLayoutHyperparams();
+  // initialize the layout hyperparams state
+  var keys = Object.keys(this.hyperparams);
+  for (var i=0; i<keys.length; i++) {
+    this[keys[i]] = this.hyperparams[keys[i]][0];
+  }
+  // set the layout hyperparams in the gui
+  this.setGuiHyperparams();
+  // draw the layout and render the scene
+  this.setLayout(function() {
+    setTimeout(this.flyInCamera.bind(this), 500);
+    window.addEventListener('resize', this.onWindowResize.bind(this));
+    document.querySelector('#search').value = this.initialQuery;
+  }.bind(this));
+}
+
+
+Wordmap.prototype.allAssetsLoaded = function() {
+  // determine whether all assets required to create the scene have loaded
+  return ['heightmap', 'manifest', 'texts'].reduce(function(b, o) {
+    b = b && o in this.state.loaded; return b;
+  }.bind(this), true)
+}
+
+
+Wordmap.prototype.setLayoutHyperparams = function() {
+  // store the distinct levels for each factor in the current layout's hyperparams
+  var params = {};
+  this.data.manifest[this.layout].forEach(function(o) {
+    Object.keys(o.params).forEach(function(k) {
+      if (!(k in params)) params[k] = [o.params[k]];
+      if (params[k].indexOf(o.params[k]) == -1) params[k].push(o.params[k]);
+    })
+  })
+  this.hyperparams = params;
+}
+
+
+Wordmap.prototype.setGuiHyperparams = function() {
+  // remove all hyperparemters currently present within the gui
+  this.gui.layout.hyperparams.forEach(function(i) {
+    this.gui.layout.folder.remove(i);
+  }.bind(this))
+  this.gui.layout.hyperparams = [];
+  // add all of the hyperparemters for the current layout
+  Object.keys(this.hyperparams).forEach(function(k) {
+    var o = this.gui.layout.folder.add(this, k, this.hyperparams[k])
+        .name(k)
+        .onFinishChange(this.setLayout.bind(this))
+    this.gui.layout.hyperparams.push(o);
+  }.bind(this))
+}
+
+
+Wordmap.prototype.setLayout = function(cb) {
+  // load the current layout data, update the gui, and transition points
+  if (this.state.transitioning) {
+    this.state.transitionQueued = true;
+    return;
+  }
+  this.state.transitioning = true;
+  get(this.getLayoutDataPath(), function(data) {
+    this.data.selected = JSON.parse(data);
+    this.data.selected.positions = center(this.data.selected.positions);
+    // if the mesh doesn't exist, initialize it
+    if (!this.mesh) {
+      this.initializeMesh();
+      this.state.transitioning = false;
+      if (cb && typeof cb === 'function') cb();
+    // if the mesh does exist, update it
+    } else {
+      var attrs = this.getWordAttrs();
+      this.setPointScale();
+      this.mesh.geometry.attributes.target.array = attrs.translations;
+      this.mesh.geometry.attributes.target.needsUpdate = true;
+      TweenLite.to(this.mesh.material.uniforms.transition, 1, {
+        value: 1,
+        ease: Power4.easeInOut,
+        onComplete: function() {
+          requestAnimationFrame(function() {
+            this.mesh.geometry.attributes.translation.array = attrs.translations;
+            this.mesh.geometry.attributes.translation.needsUpdate = true;
+            this.mesh.material.uniforms.transition = {type: 'f', value: 0};
+            this.state.transitioning = false;
+            if (cb && typeof cb === 'function') cb();
+          }.bind(this))
+        }.bind(this)
+      })
+    }
+  }.bind(this))
+}
+
+
+Wordmap.prototype.initializeMesh = function() {
+  // add all words to the scene with initial attributes
   var attrs = this.getWordAttrs(),
       geometry = new THREE.InstancedBufferGeometry();
   geometry.addAttribute('uv', new BA(new ARR([0,0]), 2, true, 1));
@@ -204,20 +315,122 @@ Wordmap.prototype.addWords = function() {
   geometry.addAttribute('texOffset', new IBA(attrs.texOffsets, 2, true, 1));
   // build the mesh
   this.setShaderMaterial();
-  var mesh = new THREE.Points(geometry, this.material);
-  mesh.frustumCulled = false;
-  mesh.name = 'words';
-  this.mesh = mesh;
-  this.scene.add(mesh);
+  this.mesh = new THREE.Points(geometry, this.material);
+  this.mesh.frustumCulled = false;
+  this.mesh.name = 'words';
+  this.scene.add(this.mesh);
 }
 
 
+Wordmap.prototype.getLayoutDataPath = function() {
+  this.setLayoutHyperparams();
+  this.setGuiHyperparams();
+  var params = Object.keys(this.hyperparams).sort();
+  return 'data/layouts/' + this.layout + '/' + params.reduce(function(s, k, idx) {
+    return idx == Object.keys(this.hyperparams).length-1
+      ? s + k + '-' + wm[k]
+      : s + k + '-' + wm[k] + '-';
+  }.bind(this), params.length ? this.layout + '_' : this.layout) + '.json';
+}
+
+
+Wordmap.prototype.createGui = function() {
+  this.gui = {
+    root: new dat.GUI({
+      hideable: false,
+    }),
+    layout: {
+      folder: null,
+      hyperparams: [],
+    },
+    style: {
+      folder: null,
+    },
+  };
+
+  // layout folder
+  this.gui.layout.folder = this.gui.root.addFolder('Layout');
+
+  this.gui.layout.layout = this.gui.layout.folder.add(this, 'layout', this.data.layouts)
+    .name('layout')
+    .onFinishChange(this.setLayout.bind(this))
+
+  this.gui.layout.heightmap = this.gui.layout.folder.add(this, 'heightScalar', 0.0, 0.003)
+    .name('mountain')
+    .onFinishChange(this.setLayout.bind(this))
+
+  // style folder
+  this.gui.style.folder = this.gui.root.addFolder('Style');
+
+  this.gui.style.wordScalar = this.gui.style.folder.add(this, 'wordScalar', 0.0, 0.005)
+    .name('font size')
+    .onFinishChange(this.setLayout.bind(this))
+
+  this.gui.style.background = this.gui.style.folder.addColor(this, 'background')
+    .name('background')
+    .onChange(this.setBackgroundColor.bind(this))
+
+  this.gui.style.color = this.gui.style.folder.add(this, 'color', ['#fff', '#000'])
+    .name('color')
+    .onChange(this.updateTexture.bind(this))
+
+  this.gui.style.font = this.gui.style.folder.add(this, 'font', this.fonts)
+    .name('font')
+    .onChange(this.updateTexture.bind(this))
+
+  this.gui.style.mipmap = this.gui.style.folder.add(this, 'mipmap')
+    .name('mipmap')
+    .onChange(this.updateTexture.bind(this))
+
+  this.gui.layout.folder.open();
+  this.gui.style.folder.open();
+}
+
+
+/**
+* Character canvas
+**/
+
+Wordmap.prototype.setCharacterCanvas = function() {
+  // draw the letter bitmap on the 2d canvas
+  var canvas = document.createElement('canvas'),
+      ctx = canvas.getContext('2d'),
+      charToCoords = {},
+      yOffset = -0.25, // offset to draw full letters w/ baselines...
+      xOffset = 0.05; // offset to draw full letter widths
+  canvas.width = this.size * 16; // * 16 because we want 16**2 = 256 letters
+  canvas.height = this.size * 16; // must set size before setting font size
+  canvas.id = 'letter-canvas';
+  ctx.font = this.size + 'px ' + this.font;
+  // draw the letters on the 2d canvas
+  ctx.fillStyle = this.color;
+  for (var x=0; x<16; x++) {
+    for (var y=0; y<16; y++) {
+      var char = String.fromCharCode((x*16) + y);
+      charToCoords[char] = {x: x, y: y};
+      ctx.fillText(char, (x+xOffset)*this.size, yOffset*this.size+(y+1)*this.size);
+    }
+  }
+  // build a three texture with the 2d canvas
+  var tex = new THREE.Texture(canvas);
+  tex.flipY = false;
+  tex.needsUpdate = true;
+  // store the texture in the current Wordmap instance
+  this.data.characters = {
+    map: charToCoords,
+    tex: tex,
+  }
+}
+
+
+/**
+* Geometry
+**/
+
 Wordmap.prototype.getWordAttrs = function() {
   var n = 0, // total number of characters among all words
-      layout = this.data.layouts[this.layout],
-      words = layout.words,
-      positions = layout.positions;
-  for (var i=0; i<words.length; i++) n += words[i].length;
+      positions = wm.data.selected.positions;
+  for (var i=0; i<this.data.texts.length; i++) n += this.data.texts[i].length;
   // build up word attributes
   var attrs = {
     translations: new Float32Array(n * 3),
@@ -228,8 +441,8 @@ Wordmap.prototype.getWordAttrs = function() {
     texOffsetIter: 0,
   }
   // assume each word has x y coords assigned
-  for (var i=0; i<words.length; i++) {
-    var word = words[i],
+  for (var i=0; i<this.data.texts.length; i++) {
+    var word = this.data.texts[i],
         x = positions[i][0],
         y = positions[i][1],
         z = positions[i][2] || this.getHeightAt(x, y);
@@ -258,7 +471,7 @@ Wordmap.prototype.setShaderMaterial = function() {
       color:      { type: 'f', value: this.getColorUniform() },
       tex:        { type: 't', value: this.data.characters.tex, },
     },
-    //transparent: true,
+    transparent: false,
     defines: {
       WORDS: true,
     }
@@ -268,173 +481,20 @@ Wordmap.prototype.setShaderMaterial = function() {
 
 
 Wordmap.prototype.getColorUniform = function() {
+  // helper to indicate the color of the font in 0:1 coords
   return this.color === '#fff' ? 1.0 : 0.0;
 }
 
 
 Wordmap.prototype.getHeightAt = function(x, y) {
-  // because x and y axes are scaled -1:1, rescale 0:1
-  x = (x+1)/2;
+  // determine the height of the heightmap at coordinates x,y
+  x = (x+1)/2; // rescale x,y axes from -1:1 to 0:1
   y = (y+1)/2;
   var row = Math.floor(y * this.data.heightmap.height),
       col = Math.floor(x * this.data.heightmap.width),
       idx = (row * this.data.heightmap.width * 4) + (col * 4),
       z = (this.data.heightmap.data[idx] + Math.random()) * this.heightScalar;
   return z;
-}
-
-
-Wordmap.prototype.init = function() {
-  this.loadFonts();
-  this.setCharacters();
-  this.setBackgroundColor();
-  this.getHeightmap(function(heightMapData) {
-    this.data.heightmap = heightMapData;
-    get('wordmap-layouts.json', function(data) {
-      this.data.input = JSON.parse(data);
-      this.parseLayouts();
-      this.createScene();
-      this.setInitialCameraPosition();
-      this.addWords();
-      this.render();
-      setTimeout(this.flyInCamera.bind(this), 500);
-      window.addEventListener('resize', this.onWindowResize.bind(this));
-      document.querySelector('#search').value = this.initialQuery;
-      this.createGUI();
-    }.bind(this))
-  }.bind(this))
-}
-
-
-Wordmap.prototype.createGUI = function() {
-  this.gui = {};
-
-  this.gui.root = new dat.GUI({hideable: false})
-
-  // layout folder
-  this.gui.layoutFolder = this.gui.root.addFolder('Layout');
-
-  this.gui.layout = this.gui.layoutFolder.add(this, 'layout', Object.keys(this.data.layouts))
-    .name('layout')
-    .onFinishChange(this.updateLayout.bind(this))
-
-  this.gui.heightmap = this.gui.layoutFolder.add(this, 'heightScalar', 0.0, 0.003)
-    .name('mountain')
-    .onFinishChange(this.updateLayout.bind(this))
-
-  // style folder
-  this.gui.styleFolder = this.gui.root.addFolder('Style');
-
-  this.gui.wordScalar = this.gui.styleFolder.add(this, 'wordScalar', 0.0, 0.005)
-    .name('font size')
-    .onFinishChange(this.updateLayout.bind(this))
-
-  this.gui.background = this.gui.styleFolder.addColor(this, 'background')
-    .name('background')
-    .onChange(this.setBackgroundColor.bind(this))
-
-  this.gui.color = this.gui.styleFolder.add(this, 'color', ['#fff', '#000'])
-    .name('color')
-    .onChange(this.updateTexture.bind(this))
-
-  this.gui.font = this.gui.styleFolder.add(this, 'font', this.fonts)
-    .name('font')
-    .onChange(this.updateTexture.bind(this))
-
-  this.gui.mipmap = this.gui.styleFolder.add(this, 'mipmap')
-    .name('mipmap')
-    .onChange(this.updateTexture.bind(this))
-
-  this.gui.layoutFolder.open();
-  this.gui.styleFolder.open();
-}
-
-
-Wordmap.prototype.updateUmapParams = function() {
-
-}
-
-
-Wordmap.prototype.parseLayouts = function() {
-  for (var i=0; i<this.data.input.length; i++) {
-    var l = this.data.input[i],
-        name = l.name || i,
-        words = l.words,
-        positions = this.center(l.positions),
-        wordToCoords = {};
-    for (var j=0; j<words.length; j++) {wordToCoords[words[j]] = positions[j];}
-    this.data.layouts[name] = {
-      words: words,
-      positions: positions,
-      wordToCoords: wordToCoords,
-    }
-    // activate the first layout
-    if (i == 0 && !this.layout) this.layout = name;
-  }
-}
-
-
-// center an array of vertex positions -1:1 on each axis
-Wordmap.prototype.center = function(arr) {
-  var max = Number.POSITIVE_INFINITY,
-      min = Number.NEGATIVE_INFINITY,
-      domX = {min: max, max: min},
-      domY = {min: max, max: min},
-      domZ = {min: max, max: min};
-  // find the min, max of each dimension
-  for (var i=0; i<arr.length; i++) {
-    var x = arr[i][0],
-        y = arr[i][1],
-        z = arr[i][2] || 0;
-    if (x < domX.min) domX.min = x;
-    if (x > domX.max) domX.max = x;
-    if (y < domY.min) domY.min = y;
-    if (y > domY.max) domY.max = y;
-    if (z < domZ.min) domZ.min = z;
-    if (z > domZ.max) domZ.max = z;
-  }
-  var centered = [];
-  for (var i=0; i<arr.length; i++) {
-    var cx = (((arr[i][0]-domX.min)/(domX.max-domX.min))*2)-1,
-        cy = (((arr[i][1]-domY.min)/(domY.max-domY.min))*2)-1,
-        cz = (((arr[i][2]-domZ.min)/(domZ.max-domZ.min))*2)-1 || null;
-    if (arr[i].length == 3) centered.push([cx, cy, cz]);
-    else centered.push([cx, cy]);
-  }
-  return centered;
-}
-
-
-Wordmap.prototype.queryWords = function(s) {
-  var map = this.data.layouts[this.layout].wordToCoords;
-  return Object.keys(map).filter(function(w) {
-    return w.toLowerCase().indexOf(s.toLowerCase()) > -1;
-  });
-}
-
-
-Wordmap.prototype.updateLayout = function() {
-  if (this.state.transitioning) {
-    this.state.transitionQueued = true;
-    return;
-  }
-  this.state.transitioning = true;
-  var attrs = this.getWordAttrs();
-  this.setPointScale();
-  this.mesh.geometry.attributes.target.array = attrs.translations;
-  this.mesh.geometry.attributes.target.needsUpdate = true;
-  TweenLite.to(this.mesh.material.uniforms.transition, 1, {
-    value: 1,
-    ease: Power4.easeInOut,
-    onComplete: function() {
-      requestAnimationFrame(function() {
-        this.mesh.geometry.attributes.translation.array = attrs.translations;
-        this.mesh.geometry.attributes.translation.needsUpdate = true;
-        this.mesh.material.uniforms.transition = {type: 'f', value: 0};
-        this.state.transitioning = false;
-      }.bind(this))
-    }.bind(this)
-  })
 }
 
 
@@ -448,7 +508,7 @@ Wordmap.prototype.setBackgroundColor = function() {
 
 
 Wordmap.prototype.updateTexture = function() {
-  this.setCharacters();
+  this.setCharacterCanvas();
   // set the mipmaps
   var filter = this.mipmap ? THREE.LinearMipMapLinearFilter : THREE.LinearFilter;
   this.data.characters.tex.minFilter = filter;
@@ -529,8 +589,16 @@ Wordmap.prototype.getWordCoords = function(word) {
 }
 
 /**
-* Typeahaed
+* Typeahead
 **/
+
+Wordmap.prototype.queryWords = function(s) {
+  var map = this.data.layouts[this.layout].wordToCoords;
+  return Object.keys(map).filter(function(w) {
+    return w.toLowerCase().indexOf(s.toLowerCase()) > -1;
+  });
+}
+
 
 function Typeahead() {
   var input = document.querySelector('#search'), // query box
@@ -587,6 +655,37 @@ function Typeahead() {
 /**
 * Helpers
 **/
+
+// center a 2d array of vertex positions -1:1 on each axis
+function center(arr) {
+  var max = Number.POSITIVE_INFINITY,
+      min = Number.NEGATIVE_INFINITY,
+      domX = {min: max, max: min},
+      domY = {min: max, max: min},
+      domZ = {min: max, max: min};
+  // find the min, max of each dimension
+  for (var i=0; i<arr.length; i++) {
+    var x = arr[i][0],
+        y = arr[i][1],
+        z = arr[i][2] || 0;
+    if (x < domX.min) domX.min = x;
+    if (x > domX.max) domX.max = x;
+    if (y < domY.min) domY.min = y;
+    if (y > domY.max) domY.max = y;
+    if (z < domZ.min) domZ.min = z;
+    if (z > domZ.max) domZ.max = z;
+  }
+  var centered = [];
+  for (var i=0; i<arr.length; i++) {
+    var cx = (((arr[i][0]-domX.min)/(domX.max-domX.min))*2)-1,
+        cy = (((arr[i][1]-domY.min)/(domY.max-domY.min))*2)-1,
+        cz = (((arr[i][2]-domZ.min)/(domZ.max-domZ.min))*2)-1 || null;
+    if (arr[i].length == 3) centered.push([cx, cy, cz]);
+    else centered.push([cx, cy]);
+  }
+  return centered;
+}
+
 
 function get(url, onSuccess, onErr, onProgress) {
   var xmlhttp = new XMLHttpRequest();
