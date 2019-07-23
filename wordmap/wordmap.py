@@ -54,7 +54,7 @@ class Manifest:
   def get_layout_params(self, layout):
     '''Find the set of all hyperparameters for each layout'''
     l = [] # store for the list of param dicts for this layout
-    d = {i: self.args[i] for i in self.args if i.startswith(layout)}
+    d = {i: self.args[i] for i in self.args if i.startswith(layout) and self.args[i]}
     for i in list(itertools.product(*[[{i:j} for j in d[i]] for i in d])):
       a = copy.deepcopy(self.args)
       for j in i:
@@ -130,7 +130,7 @@ class Layout:
   def get_filename(self):
     '''Get the filename to use when saving this layout to disk as JSON'''
     fn = self.layout + '_'
-    for k in self.hyperparams:
+    for k in sorted(list(self.hyperparams.keys())):
       fn += '{0}-{1}-'.format(k, self.hyperparams[k])
     return fn.rstrip('-').rstrip('_') + '.json'
 
@@ -155,16 +155,7 @@ class Layout:
         json.dump(self.json, out)
 
   def get_model(self):
-    if self.layout == 'ivis':
-      return Ivis(
-        model = self.params.get('ivis_model'),
-        embedding_dims = self.params.get('n_components'),
-        k = self.params.get('ivis_k'),
-        precompute = True,
-        verbose = self.params.get('verbose'),
-        annoy_index_path = self.params.get('ivis_annoy_index_path'),
-      )
-    elif self.layout == 'umap':
+    if self.layout == 'umap':
       return UMAP(
         n_components = self.params.get('n_components'),
         verbose = self.params.get('verbose'),
@@ -174,6 +165,13 @@ class Layout:
     elif self.layout == 'tsne':
       return TSNE(
         n_components = self.params.get('n_components'),
+        verbose = self.params.get('verbose'),
+      )
+    elif self.layout == 'ivis':
+      return Ivis(
+        model = self.params.get('ivis_model'),
+        embedding_dims = self.params.get('n_components'),
+        k = self.params.get('ivis_k'),
         verbose = self.params.get('verbose'),
       )
     elif self.layout == 'grid':
@@ -192,13 +190,20 @@ class Layout:
     if cache:
       self.json = cache
     else:
+      positions = self.get_model().fit_transform(self.scale_data(df))
       self.json = {
         'layout': self.layout,
         'filename': self.filename,
         'hyperparams': self.hyperparams,
-        'positions': self.round(self.get_model().fit_transform(df).tolist()),
+        'positions': self.round(positions.tolist()),
       }
       self.write_to_cache()
+
+  def scale_data(self, X):
+    '''Scale a 2d array of points `X`'''
+    if self.layout == 'ivis':
+      return MinMaxScaler().fit_transform(X)
+    return X
 
   def round(self, arr):
     '''Round the values in a 2d arr'''
@@ -355,13 +360,15 @@ def parse():
   parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
+  # layout parameters - tsne
+  parser.add_argument('--tsne_perplexity', type=int, nargs='+', default=[30], help='The perplexity parameter for TSNE layouts')
   # layout parameters - umap
   parser.add_argument('--umap_n_neighbors', type=int, nargs='+', default=[10], help='The n_neighbors parameter for UMAP layouts')
   parser.add_argument('--umap_min_dist', type=float, nargs='+', default=[0.5], help='The min_dist parameter for UMAP layouts')
   # layout parameters - ivis
-  parser.add_argument('--ivis_model', type=str, default='maaten', help='The model parameter for ivis')
-  parser.add_argument('--ivis_annoy_index_path', type=str, default=os.path.join(cache_dir, 'ivis', 'annoy.index'), help='The path to the annoy index used by ivis')
-  parser.add_argument('--ivis_k', type=int, default=[15], help='The k parameter for ivis layouts')
+  parser.add_argument('--ivis_model', type=str, nargs='+', default=['maaten'], help='The model parameter for ivis')
+  parser.add_argument('--ivis_annoy_index_path', type=str, default=[None], help='The path to the annoy index used by ivis')
+  parser.add_argument('--ivis_k', type=int, nargs='+', default=[15], help='The k parameter for ivis layouts')
   args = vars(parser.parse_args())
   # validate args
   validate_user_args(args)
