@@ -585,7 +585,7 @@ Wordmap.prototype.flyInCamera = function() {
 
 
 Wordmap.prototype.getWordCoords = function(word) {
-  return this.data.layouts[this.layout].wordToCoords[word];
+  return this.data.selected.positions[wm.data.texts.indexOf(word)];
 }
 
 /**
