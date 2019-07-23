@@ -103,7 +103,7 @@ Wordmap.prototype.render = function() {
   this.controls.update();
   if (this.state.transitionQueued) {
     this.state.transitionQueued = false;
-    this.setLayout();
+    this.draw();
   }
 }
 
@@ -211,16 +211,11 @@ Wordmap.prototype.initializeIfLoaded = function() {
   // initialize the gui to which we'll add layout hyperparms
   this.createGui();
   // set the hyperparams for the current layout
-  this.setLayoutHyperparams();
-  // initialize the layout hyperparams state
-  var keys = Object.keys(this.hyperparams);
-  for (var i=0; i<keys.length; i++) {
-    this[keys[i]] = this.hyperparams[keys[i]][0];
-  }
+  this.setHyperparams();
   // set the layout hyperparams in the gui
   this.setGuiHyperparams();
   // draw the layout and render the scene
-  this.setLayout(function() {
+  this.draw(function() {
     setTimeout(this.flyInCamera.bind(this), 500);
     window.addEventListener('resize', this.onWindowResize.bind(this));
     document.querySelector('#search').value = this.initialQuery;
@@ -236,15 +231,16 @@ Wordmap.prototype.allAssetsLoaded = function() {
 }
 
 
-Wordmap.prototype.setLayoutHyperparams = function() {
+Wordmap.prototype.setHyperparams = function() {
   // store the distinct levels for each factor in the current layout's hyperparams
   var params = {};
   this.data.manifest[this.layout].forEach(function(o) {
     Object.keys(o.params).forEach(function(k) {
       if (!(k in params)) params[k] = [o.params[k]];
-      if (params[k].indexOf(o.params[k]) == -1) params[k].push(o.params[k]);
-    })
-  })
+      if (params[k].indexOf(o.params[k]) == -1) params[k].push(o.params[k].toString());
+      if (!this[k]) this[k] = o.params[k];
+    }.bind(this))
+  }.bind(this))
   this.hyperparams = params;
 }
 
@@ -259,13 +255,13 @@ Wordmap.prototype.setGuiHyperparams = function() {
   Object.keys(this.hyperparams).forEach(function(k) {
     var o = this.gui.layout.folder.add(this, k, this.hyperparams[k])
         .name(k)
-        .onFinishChange(this.setLayout.bind(this))
+        .onFinishChange(this.draw.bind(this))
     this.gui.layout.hyperparams.push(o);
   }.bind(this))
 }
 
 
-Wordmap.prototype.setLayout = function(cb) {
+Wordmap.prototype.draw = function(cb) {
   // load the current layout data, update the gui, and transition points
   if (this.state.transitioning) {
     this.state.transitionQueued = true;
@@ -323,7 +319,7 @@ Wordmap.prototype.initializeMesh = function() {
 
 
 Wordmap.prototype.getLayoutDataPath = function() {
-  this.setLayoutHyperparams();
+  this.setHyperparams();
   this.setGuiHyperparams();
   var params = Object.keys(this.hyperparams).sort();
   return 'data/layouts/' + this.layout + '/' + params.reduce(function(s, k, idx) {
@@ -353,18 +349,18 @@ Wordmap.prototype.createGui = function() {
 
   this.gui.layout.layout = this.gui.layout.folder.add(this, 'layout', this.data.layouts)
     .name('layout')
-    .onFinishChange(this.setLayout.bind(this))
+    .onFinishChange(this.draw.bind(this))
 
   this.gui.layout.heightmap = this.gui.layout.folder.add(this, 'heightScalar', 0.0, 0.003)
     .name('mountain')
-    .onFinishChange(this.setLayout.bind(this))
+    .onFinishChange(this.draw.bind(this))
 
   // style folder
   this.gui.style.folder = this.gui.root.addFolder('Style');
 
   this.gui.style.wordScalar = this.gui.style.folder.add(this, 'wordScalar', 0.0, 0.005)
     .name('font size')
-    .onFinishChange(this.setLayout.bind(this))
+    .onFinishChange(this.draw.bind(this))
 
   this.gui.style.background = this.gui.style.folder.addColor(this, 'background')
     .name('background')
@@ -490,8 +486,8 @@ Wordmap.prototype.getHeightAt = function(x, y) {
   // determine the height of the heightmap at coordinates x,y
   x = (x+1)/2; // rescale x,y axes from -1:1 to 0:1
   y = (y+1)/2;
-  var row = Math.floor(y * this.data.heightmap.height),
-      col = Math.floor(x * this.data.heightmap.width),
+  var row = Math.floor(y * (this.data.heightmap.height-1)),
+      col = Math.floor(x * (this.data.heightmap.width-1)),
       idx = (row * this.data.heightmap.width * 4) + (col * 4),
       z = (this.data.heightmap.data[idx] + Math.random()) * this.heightScalar;
   return z;
@@ -577,6 +573,7 @@ Wordmap.prototype.flyTo = function(coords) {
 
 
 Wordmap.prototype.flyInCamera = function() {
+  this.renderer.domElement.style.opacity = 1;
   TweenLite.to(this.camera.position, 3.5, {
     z: 0.56,
     ease: Power4.easeInOut,
