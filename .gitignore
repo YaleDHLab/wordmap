@@ -5,6 +5,7 @@
 *.gz
 *.egg-info
 *.model
+*.index
 __pycache__
 .ipynb_checkpoints
 clean.sh
