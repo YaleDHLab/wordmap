@@ -305,6 +305,15 @@
     varying float vClusterTarget;
   #endif
 
+  vec4 rotColor(in float f) {
+    return vec4(
+      mod(0.0+f, 1.0),
+      mod(0.3+f, 1.0),
+      mod(0.6+f, 1.0),
+      1.0
+    );
+  }
+
   void main() {
     #ifdef WORDS
       vec2 uv = vTexOffset + vec2(gl_PointCoord.x, gl_PointCoord.y);
@@ -314,17 +323,9 @@
     #else
       // make point circular
       if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-      vec4 color = vec4(
-        mod(0.0+vCluster, 1.0),
-        mod(0.3+vCluster, 1.0),
-        mod(0.6+vCluster, 1.0),
-        1.0);
-      vec4 targetColor = vec4(
-        mod(0.0+vClusterTarget, 1.0),
-        mod(0.3+vClusterTarget, 1.0),
-        mod(0.6+vClusterTarget, 1.0),
-        1.0);
-      gl_FragColor = mix(color, targetColor, transition);
+      vec4 colorCurrent = rotColor(vCluster);
+      vec4 colorTarget = rotColor(vClusterTarget);
+      gl_FragColor = mix(colorCurrent, colorTarget, transition);
     #endif
 
     gl_FragColor.a += pow(vDistance, 2.0) / 5.0;
