@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request, send_from_directory, render_template
 from gensim.models.callbacks import CallbackAny2Vec
+from gensim.models.doc2vec import TaggedDocument
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import NMF
 from distutils.dir_util import copy_tree
@@ -234,17 +235,23 @@ class EpochLogger(CallbackAny2Vec):
 
   def on_epoch_end(self, model):
     self.epoch_count += 1
-    print('   * completed {0} Word2Vec epochs'.format(self.epoch_count))
+    print('   * completed {0} training epochs'.format(self.epoch_count))
 
 
-class Word2Vec:
+class Model:
   def __init__(self, *args, **kwargs):
     self.args = kwargs.get('args', {})
     self.texts = glob2.glob(self.args['texts'])
-    self.cache_dir = os.path.join(kwargs.get('cache_dir', cache_dir), 'word2vec')
-    self.cache_path = self.get_cache_path()
-    self.load_model()
-    self.plot()
+    if self.args.get('model', False):
+      self.model = self.load_from_cache()
+    else:
+      self.model = None
+      self.model_type = self.args['model_type']
+      self.cache_dir = os.path.join(kwargs.get('cache_dir', cache_dir), self.model_type)
+      self.cache_path = self.get_cache_path()
+      self.create_model()
+      self.save_to_cache()
+    self.create_manifest()
 
   def get_cache_path(self):
     '''Return the path wherein this model will be persisted'''
@@ -253,33 +260,49 @@ class Word2Vec:
   def load_from_cache(self):
     '''Load a saved gensim model from the model cache'''
     if os.path.exists(self.args['model']):
-      return gensim.models.Word2Vec.load(self.args['model'])
+      model = gensim.models.Word2Vec.load(self.args['model'])
+      if isinstance(model, gensim.models.word2vec.Word2Vec):
+        self.model_type = 'word2vec'
+      elif isinstance(model, gensim.models.doc2vec.Doc2Vec):
+        self.model_type = 'doc2vec'
+      else:
+        raise Exception('The loaded model type could not be inferred. Please create a new model')
+      return model
+
+  def create_model(self):
+    '''Create a gensim Word2Vec model with the input data'''
+    self.log_files()
+    self.set_model(self.get_input_data())
+
+  def set_model(self, input_data):
+    '''Return a model on the input data'''
+    if self.model_type == 'word2vec':
+      self.model = gensim.models.Word2Vec(
+        input_data,
+        size = self.args['size'],
+        window = self.args['window'],
+        min_count = self.args['min_count'],
+        workers = self.args['workers'],
+        callbacks = [EpochLogger()],
+        max_final_vocab = self.args.get('max_size', None)
+      )
+    elif self.model_type == 'doc2vec':
+      self.model = gensim.models.Doc2Vec(
+        input_data,
+        vector_size = self.args['size'],
+        window = self.args['window'],
+        min_count = self.args['min_count'],
+        workers = self.args['workers'],
+        callbacks = [EpochLogger()],
+      )
+    else:
+      raise Exception('The requested model type is not supported:', self.model_type)
 
   def save_to_cache(self):
     '''Save self.model to the model cache'''
     if not os.path.exists(self.cache_dir):
       os.makedirs(self.cache_dir)
     self.model.save(self.cache_path)
-
-  def load_model(self):
-    '''Return a gensim Word2Vec model (from the cache if possible)'''
-    if self.args.get('model', None):
-      self.model = self.load_from_cache()
-    else:
-      self.model = self.create_model()
-
-  def create_model(self):
-    '''Create a gensim Word2Vec model with the input data'''
-    self.log_files()
-    self.model = gensim.models.Word2Vec(self.get_word_lists(),
-      size = self.args['size'],
-      window = self.args['window'],
-      min_count = self.args['min_count'],
-      workers = self.args['workers'],
-      callbacks = [EpochLogger()],
-    )
-    self.save_to_cache()
-    return self.model
 
   def log_files(self):
     '''Print a note indicating the files this Word2Vec instance will process'''
@@ -290,21 +313,38 @@ class Word2Vec:
       sep + sep.join(display_files))
     )
 
-  def get_word_lists(self):
+  def get_input_data(self):
     '''Return a 2d list of words in self.files'''
-    word_lists = []
-    for i in self.texts:
-      with codecs.open(i, 'r', self.args['encoding']) as f:
-        word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
-    return word_lists
+    if self.model_type in ['word2vec', 'doc2vec']:
+      word_lists = []
+      for i in self.texts:
+        with codecs.open(i, 'r', self.args['encoding']) as f:
+          word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
+      if self.model_type == 'word2vec':
+        return word_lists
+      else:
+        return [TaggedDocument(doc, [i]) for i, doc in enumerate(word_lists)]
 
-  def plot(self):
+  def create_manifest(self):
     '''Create a plot from this model'''
-    words = self.model.wv.index2entity
-    if self.args['max_words']:
-      words = words[:self.args['max_words']]
-    df = np.array([self.model.wv[w] for w in words])
-    manifest = Manifest(args=self.args, df=df, strings=words)
+    if self.model_type == 'word2vec':
+      strings = self.model.wv.index2entity
+      df = np.array([self.model.wv[w] for w in strings])
+    else:
+      strings = [self.clean_filename(i) for i in self.texts]
+      df = [self.model.docvecs[idx] for idx, _ in enumerate(strings)]
+    if self.args['max_size']:
+      print(' * limiting input string set to length', self.args['max_size'])
+      strings = strings[:self.args['max_size']]
+      df = np.array(df)[:self.args['max_size']]
+    manifest = Manifest(args=self.args, strings=strings, df=df)
+
+  def clean_filename(self, path):
+    '''Given the path to a file return a clean filename for displaying'''
+    s = os.path.splitext(os.path.basename(path))[0].lower()
+    s = re.sub(r'[^\w\s]',' ', s)
+    s = ' '.join(i[0].upper() + ''.join(i[1:]) for i in s.split())
+    return s
 
 
 def serve():
@@ -339,6 +379,9 @@ def validate_user_args(args):
   # make sure the user provided a pretrained model or text data for a new model
   if not any([args['model'], args['texts']]):
     raise Exception('Please provide either a --model or --texts argument')
+  # if the user specified a model type make sure it's supported
+  if args['model_type'] not in ['word2vec', 'doc2vec']:
+    raise Exception('The requested model type is not supported')
   # if the user specified a model check that it exists
   if args['model'] and not os.path.exists(args['model']):
     raise Exception('The specified model file does not exist')
@@ -362,15 +405,16 @@ def parse():
   parser.add_argument('--texts', type=str, help='A glob of text files to process', required=False)
   parser.add_argument('--encoding', type=str, default='utf8', help='The encoding of input files', required=False)
   # word2vec model parameters
-  parser.add_argument('--model', type=str, help='Path to a Word2Vec model to load', required=False)
+  parser.add_argument('--model', type=str, help='Path to a Word2Vec or Doc2Vec model to load', required=False)
   parser.add_argument('--model_name', type=str, default='{}.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
-  parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in Word2Vec vectors', required=False)
-  parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating Word2Vec model', required=False)
-  parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the Word2Vec model', required=False)
-  parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing user data', required=False)
+  parser.add_argument('--model_type', type=str, default='word2vec', choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
+  parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in the model embeddings', required=False)
+  parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating model vectors', required=False)
+  parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the model', required=False)
+  parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing input data', required=False)
   # layout parameters
   parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
-  parser.add_argument('--max_words', type=int, default=100000, help='Maximum number of words to include in visualization', required=False)
+  parser.add_argument('--max_size', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
   parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
@@ -389,7 +433,7 @@ def parse():
   # validate args
   validate_user_args(args)
   # find or create a word2vec model
-  model = Word2Vec(args=args)
+  model = Model(args=args)
 
 if __name__ == '__main__':
   parse()
