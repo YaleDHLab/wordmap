@@ -204,6 +204,7 @@
     position: fixed;
     top: 0;
     left: 0;
+    opacity: 1;
   }
 
   /**
@@ -241,6 +242,8 @@
   </div>
 
   <script id='vertex-shader' type='x-shader/x-vertex'>
+  precision mediump float;
+
   uniform mat4 projectionMatrix;
   uniform mat4 modelViewMatrix;
   uniform vec3 cameraPosition;
@@ -251,9 +254,13 @@
   attribute vec3 translation;
   attribute vec3 target;
   attribute vec2 texOffset;
+  attribute float cluster;
+  attribute float clusterTarget;
 
   varying vec2 vTexOffset;
   varying float vDistance;
+  varying float vCluster;
+  varying float vClusterTarget;
 
   void main() {
     // project this particle
@@ -267,8 +274,14 @@
     vec4 cam4 = vec4(cameraPosition, 1.0);
     gl_PointSize = (pointScale / -mvPosition.z);
 
-    vTexOffset = texOffset;
     vDistance = -mvPosition.z;
+
+    #ifdef WORDS
+      vTexOffset = texOffset;
+    #else
+      vCluster = cluster;
+      vClusterTarget = clusterTarget;
+    #endif
   }
   </script>
 
@@ -281,9 +294,16 @@
   uniform float fogNear;
   uniform float fogFar;
   uniform float color;
+  uniform float transition;
 
-  varying vec2 vTexOffset;
   varying float vDistance;
+
+  #ifdef WORDS
+    varying vec2 vTexOffset;
+  #else
+    varying float vCluster;
+    varying float vClusterTarget;
+  #endif
 
   void main() {
     #ifdef WORDS
@@ -294,7 +314,17 @@
     #else
       // make point circular
       if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-      gl_FragColor = vec4(0.7, 0.7, 0.8, 0.5);
+      vec4 color = vec4(
+        mod(0.0+vCluster, 1.0),
+        mod(0.3+vCluster, 1.0),
+        mod(0.6+vCluster, 1.0),
+        1.0);
+      vec4 targetColor = vec4(
+        mod(0.0+vClusterTarget, 1.0),
+        mod(0.3+vClusterTarget, 1.0),
+        mod(0.6+vClusterTarget, 1.0),
+        1.0);
+      gl_FragColor = mix(color, targetColor, transition);
     #endif
 
     gl_FragColor.a += pow(vDistance, 2.0) / 5.0;

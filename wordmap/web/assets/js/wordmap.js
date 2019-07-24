@@ -5,19 +5,24 @@ var BA = THREE.BufferAttribute,
 
 
 function Wordmap() {
+  // layout parameters
+  this.layout = null; // the currently selected layout
+  this.heightScalar = 0.002; // controls mountain height
   // style parameters
   this.wordScalar = 0.0003; // sizes up words
+  this.pointScalar = 0.0005; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#fff'; // background color
   this.color = '#000'; // text color
   this.font = 'Monospace'; // font family
   this.mipmap = true; // toggles mipmaps in texture
-  // layout parameters
-  this.layout = null; // the currently selected layout
-  this.heightScalar = 0.002; // controls mountain height
+  this.transitionDuration = 1.0; // time of transitions in seconds
   // internal static
   this.size = 64; // size of each character on canvas
   this.initialQuery = 'stars'; // the default search term
+  // internal objects
+  this.textMesh = null;
+  this.pointMesh = null;
   // internal state
   this.state = {
     flying: false, // bool indicating whether we're flying camera
@@ -26,16 +31,16 @@ function Wordmap() {
     transitionQueued: false, // bool indicating whether to run another layout transition
     loadProgres: {}, // map from asset identifier to load progress
     loaded: {}, // list of strings identifying initial assets loaded
-  }
+  };
   // data
   this.data = {
     words: [], // list of strings to visualize
     layouts: [],
     heightmap: {},
-    characters: {},
+    characters: {}, // d[cluster_id] = {map: , tex: } controls cluster colors
     selected: {}, // currently selected layout
     previous: {}, // previously selected layout
-  }
+  };
   // font options (each must be present in web/assets/fonts)
   this.fonts = [
     'Monospace',
@@ -57,10 +62,14 @@ Wordmap.prototype.createScene = function() {
 
   // camera
   var aspectRatio = window.innerWidth / window.innerHeight;
-  var camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.001, 10);
+  var camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.01, 10);
 
   // renderer
-  var renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+  var renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    logarithmicDepthBuffer: true,
+  });
   renderer.sortObjects = false; // make scene.add order draw order
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -147,7 +156,7 @@ Wordmap.prototype.loadHeightmap = function() {
     // store this asset in loaded assets and render if ready
     this.state.loaded['heightmap'] = true;
     this.initializeIfLoaded();
-  }.bind(this)
+  }.bind(this);
   img.src = 'assets/images/heightmap.jpg';
 }
 
@@ -171,11 +180,12 @@ Wordmap.prototype.loadFont = function(font) {
     elem.style.fontFamily = font;
     elem.id = 'font-' + font;
     document.querySelector('#font-target').appendChild(elem);
-  })
+  }.bind(this))
 }
 
 
 Wordmap.prototype.loadTexts = function() {
+  // load all texts specified in this.texts
   get('data/texts.json', function(data) {
     this.data.texts = JSON.parse(data);
     // store this asset in loaded assets and render if ready
@@ -271,25 +281,37 @@ Wordmap.prototype.draw = function(cb) {
   get(this.getLayoutDataPath(), function(data) {
     this.data.selected = JSON.parse(data);
     this.data.selected.positions = center(this.data.selected.positions);
-    // if the mesh doesn't exist, initialize it
-    if (!this.mesh) {
-      this.initializeMesh();
+    // if the meshes don't exist, initialize them
+    if (!this.textMesh) {
+      this.initializeMeshes();
       this.state.transitioning = false;
       if (cb && typeof cb === 'function') cb();
-    // if the mesh does exist, update it
+    // if the meshes do exist, update them
     } else {
-      var attrs = this.getWordAttrs();
+      var attrs = this.getMeshAttrs();
       this.setPointScale();
-      this.mesh.geometry.attributes.target.array = attrs.translations;
-      this.mesh.geometry.attributes.target.needsUpdate = true;
-      TweenLite.to(this.mesh.material.uniforms.transition, 1, {
+      this.textMesh.geometry.attributes.target.array = attrs.text.translations;
+      this.textMesh.geometry.attributes.target.needsUpdate = true;
+      this.pointMesh.geometry.attributes.target.array = attrs.point.translations;
+      this.pointMesh.geometry.attributes.target.needsUpdate = true;
+      this.pointMesh.geometry.attributes.clusterTarget.array = attrs.point.clusters;
+      this.pointMesh.geometry.attributes.clusterTarget.needsUpdate = true;
+      TweenLite.to([
+        this.textMesh.material.uniforms.transition,
+        this.pointMesh.material.uniforms.transition,
+      ], this.transitionDuration, {
         value: 1,
         ease: Power4.easeInOut,
         onComplete: function() {
           requestAnimationFrame(function() {
-            this.mesh.geometry.attributes.translation.array = attrs.translations;
-            this.mesh.geometry.attributes.translation.needsUpdate = true;
-            this.mesh.material.uniforms.transition = {type: 'f', value: 0};
+            this.textMesh.geometry.attributes.translation.array = attrs.text.translations;
+            this.textMesh.geometry.attributes.translation.needsUpdate = true;
+            this.pointMesh.geometry.attributes.translation.array = attrs.point.translations;
+            this.pointMesh.geometry.attributes.translation.needsUpdate = true;
+            this.pointMesh.geometry.attributes.cluster.array = attrs.point.clusters;
+            this.pointMesh.geometry.attributes.cluster.needsUpdate = true;
+            this.textMesh.material.uniforms.transition = {type: 'f', value: 0};
+            this.pointMesh.material.uniforms.transition = {type: 'f', value: 0};
             this.state.transitioning = false;
             if (cb && typeof cb === 'function') cb();
           }.bind(this))
@@ -300,21 +322,36 @@ Wordmap.prototype.draw = function(cb) {
 }
 
 
-Wordmap.prototype.initializeMesh = function() {
+Wordmap.prototype.initializeMeshes = function() {
   // add all words to the scene with initial attributes
-  var attrs = this.getWordAttrs(),
-      geometry = new THREE.InstancedBufferGeometry();
+  var attrs = this.getMeshAttrs();
+  // create the pointMesh
+  var geometry = new THREE.InstancedBufferGeometry();
+  geometry.addAttribute('position', new BA(new ARR([0,0,0]), 3, true, 1));
+  geometry.addAttribute('translation', new IBA(attrs.point.translations, 3, true, 1));
+  geometry.addAttribute('target', new IBA(attrs.point.translations, 3, true, 1));
+  geometry.addAttribute('cluster', new IBA(attrs.point.clusters, 1, true, 1));
+  geometry.addAttribute('clusterTarget', new IBA(attrs.point.clusters, 1, true, 1));
+  var material = this.getShaderMaterial();
+  this.pointMesh = new THREE.Points(geometry, material);
+  this.pointMesh.frustumCulled = false;
+  this.pointMesh.name = 'points';
+  this.pointMesh.renderOrder = 0;
+  this.scene.add(this.pointMesh);
+  // create the textMesh
+  var geometry = new THREE.InstancedBufferGeometry();
   geometry.addAttribute('uv', new BA(new ARR([0,0]), 2, true, 1));
   geometry.addAttribute('position', new BA(new ARR([0,0,0]), 3, true, 1));
-  geometry.addAttribute('translation', new IBA(attrs.translations, 3, true, 1));
-  geometry.addAttribute('target', new IBA(attrs.translations, 3, true, 1));
-  geometry.addAttribute('texOffset', new IBA(attrs.texOffsets, 2, true, 1));
-  // build the mesh
-  this.setShaderMaterial();
-  this.mesh = new THREE.Points(geometry, this.material);
-  this.mesh.frustumCulled = false;
-  this.mesh.name = 'words';
-  this.scene.add(this.mesh);
+  geometry.addAttribute('translation', new IBA(attrs.text.translations, 3, true, 1));
+  geometry.addAttribute('target', new IBA(attrs.text.translations, 3, true, 1));
+  geometry.addAttribute('texOffset', new IBA(attrs.text.texOffsets, 2, true, 1));
+  var material = this.getShaderMaterial();
+  material.defines.WORDS = true;
+  this.textMesh = new THREE.Points(geometry, material);
+  this.textMesh.frustumCulled = false;
+  this.textMesh.name = 'words';
+  this.textMesh.renderOrder = 1; // keep the text mesh in front of points
+  this.scene.add(this.textMesh);
 }
 
 
@@ -324,8 +361,8 @@ Wordmap.prototype.getLayoutDataPath = function() {
   var params = Object.keys(this.hyperparams).sort();
   return 'data/layouts/' + this.layout + '/' + params.reduce(function(s, k, idx) {
     return idx == Object.keys(this.hyperparams).length-1
-      ? s + k + '-' + wm[k]
-      : s + k + '-' + wm[k] + '-';
+      ? s + k + '-' + this[k]
+      : s + k + '-' + this[k] + '-';
   }.bind(this), params.length ? this.layout + '_' : this.layout) + '.json';
 }
 
@@ -358,8 +395,12 @@ Wordmap.prototype.createGui = function() {
   // style folder
   this.gui.style.folder = this.gui.root.addFolder('Style');
 
-  this.gui.style.wordScalar = this.gui.style.folder.add(this, 'wordScalar', 0.0, 0.005)
+  this.gui.style.wordScalar = this.gui.style.folder.add(this, 'wordScalar', 0.0, 0.01)
     .name('font size')
+    .onFinishChange(this.draw.bind(this))
+
+  this.gui.style.pointScalar = this.gui.style.folder.add(this, 'pointScalar', 0.0, 0.05)
+    .name('point size')
     .onFinishChange(this.draw.bind(this))
 
   this.gui.style.background = this.gui.style.folder.addColor(this, 'background')
@@ -377,6 +418,9 @@ Wordmap.prototype.createGui = function() {
   this.gui.style.mipmap = this.gui.style.folder.add(this, 'mipmap')
     .name('mipmap')
     .onChange(this.updateTexture.bind(this))
+
+  this.gui.style.transitionDuration = this.gui.style.folder.add(this, 'transitionDuration', 0.0, 30.0)
+    .name('animations');
 
   this.gui.layout.folder.open();
   this.gui.style.folder.open();
@@ -423,56 +467,70 @@ Wordmap.prototype.setCharacterCanvas = function() {
 * Geometry
 **/
 
-Wordmap.prototype.getWordAttrs = function() {
-  var n = 0, // total number of characters among all words
-      positions = wm.data.selected.positions;
-  for (var i=0; i<this.data.texts.length; i++) n += this.data.texts[i].length;
-  // build up word attributes
+Wordmap.prototype.getMeshAttrs = function() {
+  var texts = this.data.texts,
+      nWords = texts.length,
+      nChars = texts.reduce(function(n, i) { n += i.length; return n; }, 0),
+      nClusters = this.data.selected.cluster_centers.length;
+  // build up attributes for the word and point geoemtries
   var attrs = {
-    translations: new Float32Array(n * 3),
-    texOffsets: new Float32Array(n * 2),
+    text: {
+      translations: new Float32Array(nChars * 3),
+      texOffsets: new Float32Array(nChars * 2),
+    },
+    point: {
+      translations: new Float32Array(nWords * 3),
+      clusters: new Float32Array(nWords),
+    },
   }
   var iters = {
-    translationIter: 0,
-    texOffsetIter: 0,
+    text: {
+      trans: 0,
+      offsets: 0,
+    },
+    point: {
+      trans: 0,
+      cluster: 0,
+    },
   }
   // assume each word has x y coords assigned
-  for (var i=0; i<this.data.texts.length; i++) {
-    var word = this.data.texts[i],
-        x = positions[i][0],
-        y = positions[i][1],
-        z = positions[i][2] || this.getHeightAt(x, y);
+  for (var i=0; i<nWords; i++) {
+    var word = texts[i],
+        x = this.data.selected.positions[i][0],
+        y = this.data.selected.positions[i][1],
+        z = this.data.selected.positions[i][2] || this.getHeightAt(x, y),
+        cluster = this.data.selected.clusters[i] / nClusters; // normalize 0:1
+    attrs.point.translations[iters.point.trans++] = x;
+    attrs.point.translations[iters.point.trans++] = y;
+    attrs.point.translations[iters.point.trans++] = z;
+    attrs.point.clusters[iters.point.cluster++] = cluster;
     for (var c=0; c<word.length; c++) {
       var offsets = this.data.characters.map[word[c]] || this.data.characters.map['?'];
-      attrs.translations[iters.translationIter++] = x + (this.wordScalar * 0.9 * c);
-      attrs.translations[iters.translationIter++] = y;
-      attrs.translations[iters.translationIter++] = z;
-      attrs.texOffsets[iters.texOffsetIter++] = offsets.x;
-      attrs.texOffsets[iters.texOffsetIter++] = offsets.y;
+      attrs.text.translations[iters.text.trans++] = x + (this.wordScalar * 0.9 * c);
+      attrs.text.translations[iters.text.trans++] = y;
+      attrs.text.translations[iters.text.trans++] = z;
+      attrs.text.texOffsets[iters.text.offsets++] = offsets.x;
+      attrs.text.texOffsets[iters.text.offsets++] = offsets.y;
     }
   }
   return attrs;
 }
 
 
-Wordmap.prototype.setShaderMaterial = function() {
-  // set the material
-  this.material = new THREE.RawShaderMaterial({
+Wordmap.prototype.getShaderMaterial = function() {
+  // return a new shader material
+  return new THREE.RawShaderMaterial({
     vertexShader: document.getElementById('vertex-shader').textContent,
     fragmentShader: document.getElementById('fragment-shader').textContent,
     uniforms: {
       pointScale: { type: 'f', value: 0.0, },
       transition: { type: 'f', value: 0.0, },
       cellSize:   { type: 'f', value: this.size / (this.size * 16), }, // letter size in map
-      color:      { type: 'f', value: this.getColorUniform() },
+      color:      { type: 'f', value: this.getColorUniform(), },
       tex:        { type: 't', value: this.data.characters.tex, },
     },
     transparent: false,
-    defines: {
-      WORDS: true,
-    }
   });
-  this.setPointScale();
 }
 
 
@@ -509,15 +567,15 @@ Wordmap.prototype.updateTexture = function() {
   var filter = this.mipmap ? THREE.LinearMipMapLinearFilter : THREE.LinearFilter;
   this.data.characters.tex.minFilter = filter;
   this.data.characters.tex.needsUpdate = true;
-  this.mesh.material.uniforms.tex.value = this.data.characters.tex;
-  this.mesh.material.uniforms.color.value = this.getColorUniform();
+  this.textMesh.material.uniforms.tex.value = this.data.characters.tex;
+  this.textMesh.material.uniforms.color.value = this.getColorUniform();
 }
 
 
 Wordmap.prototype.setPointScale = function() {
-  var val = window.devicePixelRatio * window.innerHeight * this.wordScalar;
-  this.material.uniforms.pointScale.value = val;
-  this.material.uniforms.pointScale.needsUpdate = true;
+  var windowScalar = window.devicePixelRatio * window.innerHeight;
+  this.textMesh.material.uniforms.pointScale.value = windowScalar * this.wordScalar;
+  this.pointMesh.material.uniforms.pointScale.value = windowScalar * this.pointScalar;
   this.renderer.setPixelRatio(window.devicePixelRatio);
 }
 
@@ -582,7 +640,7 @@ Wordmap.prototype.flyInCamera = function() {
 
 
 Wordmap.prototype.getWordCoords = function(word) {
-  return this.data.selected.positions[wm.data.texts.indexOf(word)];
+  return this.data.selected.positions[this.data.texts.indexOf(word)];
 }
 
 /**
