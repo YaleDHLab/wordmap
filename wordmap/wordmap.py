@@ -49,17 +49,17 @@ class Manifest:
     self.df = kwargs.get('df', [[]])
     self.strings = kwargs.get('strings', [])
     self.layouts = []
-    for layout in self.args['layouts']:
-      for idx, params in enumerate(self.get_layout_params(layout)):
-        print(' * computing positions for', layout, 'layout', idx+1)
-        l = Layout(layout=layout, params=params, df=self.df)
-        self.layouts.append(l)
+    for layouts in self.args['layouts']:
+      for idx, params in enumerate(self.get_layout_params(layouts)):
+        print(' * computing positions for', layouts, 'layout', idx+1)
+        self.layouts.append(Layout(layout=layouts, params=params, df=self.df))
     self.write_web_assets()
 
   def get_layout_params(self, layout):
-    '''Find the set of all hyperparameters for each layout'''
+    '''Find the set of all hyperparams for each layout'''
     l = [] # store for the list of param dicts for this layout
     keys = [i for i in self.args if i.startswith(layout) and self.args[i]]
+    keys += post_layout_params
     d = {i: self.args[i] for i in keys}
     for i in list(itertools.product(*[[{i:j} for j in d[i]] for i in d])):
       a = copy.deepcopy(self.args)
@@ -116,13 +116,13 @@ class Layout:
   def __init__(self, *args, **kwargs):
     self.layout = kwargs.get('layout')
     self.params = kwargs.get('params')
-    self.float_precision = kwargs.get('float_precision', 2)
     self.json = {}
+    self.float_precision = kwargs.get('float_precision', 2)
     self.hyperparams = self.get_hyperparams()
     self.filename = self.get_filename()
     self.cache_dir = os.path.join(cache_dir, self.layout)
     self.cache_path = self.get_cache_path()
-    self.positions = self.get_positions(kwargs.get('df'))
+    self.get_positions(kwargs.get('df'))
 
   def get_hyperparams(self):
     '''Return a dict of k/v params for this specific layout'''
@@ -199,10 +199,6 @@ class Layout:
     else:
       df = self.scale_data(df)
       positions = self.get_model().fit_transform(df)
-
-      # find all combinations among post_layout_params
-      print(' ! find all combinations among post_layout_params')
-
       clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
       self.json = {
         'layout': self.layout,
