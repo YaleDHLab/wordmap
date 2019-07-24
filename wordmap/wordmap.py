@@ -1,8 +1,10 @@
 from flask import Flask, jsonify, request, send_from_directory, render_template
 from gensim.models.callbacks import CallbackAny2Vec
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import NMF
 from distutils.dir_util import copy_tree
 from sklearn.manifold import TSNE
+from sklearn.cluster import KMeans
 from collections import defaultdict
 from flask_cors import CORS
 from os.path import join
@@ -33,8 +35,11 @@ target_dir = join(os.getcwd(), 'web')
 # Store a reference to the location where models will be cached
 cache_dir = 'models'
 
-# Global list of all possible layout options
+# List of all possible layout options
 layouts = ['ivis', 'umap', 'tsne', 'grid']
+
+# List of layout combinatorial fields applied after layouts are computed
+post_layout_params = ['n_clusters']
 
 class Manifest:
   def __init__(self, *args, **kwargs):
@@ -46,7 +51,7 @@ class Manifest:
     self.layouts = []
     for layout in self.args['layouts']:
       for idx, params in enumerate(self.get_layout_params(layout)):
-        print(' * computing vertex positions for', layout, 'layout', idx+1)
+        print(' * computing positions for', layout, 'layout', idx+1)
         l = Layout(layout=layout, params=params, df=self.df)
         self.layouts.append(l)
     self.write_web_assets()
@@ -54,7 +59,8 @@ class Manifest:
   def get_layout_params(self, layout):
     '''Find the set of all hyperparameters for each layout'''
     l = [] # store for the list of param dicts for this layout
-    d = {i: self.args[i] for i in self.args if i.startswith(layout) and self.args[i]}
+    keys = [i for i in self.args if i.startswith(layout) and self.args[i]]
+    d = {i: self.args[i] for i in keys}
     for i in list(itertools.product(*[[{i:j} for j in d[i]] for i in d])):
       a = copy.deepcopy(self.args)
       for j in i:
@@ -84,7 +90,7 @@ class Manifest:
     for i in self.layouts:
       d[i.layout].append({
         'filename': i.filename,
-        'params': i.hyperparams,
+        'params': {k: str(v) for k, v in i.hyperparams.items()},
       })
     return d
 
@@ -119,10 +125,10 @@ class Layout:
     self.positions = self.get_positions(kwargs.get('df'))
 
   def get_hyperparams(self):
-    '''Return a dict of k/v params for this specific layout type'''
+    '''Return a dict of k/v params for this specific layout'''
     d = {}
     for k, v in self.params.items():
-      if k.startswith(self.layout):
+      if k.startswith(self.layout) or k in post_layout_params:
         k = k.replace('{0}_'.format(self.layout), '')
         d[k] = v
     return d
@@ -131,7 +137,8 @@ class Layout:
     '''Get the filename to use when saving this layout to disk as JSON'''
     fn = self.layout + '_'
     for k in sorted(list(self.hyperparams.keys())):
-      fn += '{0}-{1}-'.format(k, self.hyperparams[k])
+      if self.hyperparams[k]:
+        fn += '{0}-{1}-'.format(k, self.hyperparams[k])
     return fn.rstrip('-').rstrip('_') + '.json'
 
   def get_cache_path(self):
@@ -190,12 +197,20 @@ class Layout:
     if cache:
       self.json = cache
     else:
-      positions = self.get_model().fit_transform(self.scale_data(df))
+      df = self.scale_data(df)
+      positions = self.get_model().fit_transform(df)
+
+      # find all combinations among post_layout_params
+      print(' ! find all combinations among post_layout_params')
+
+      clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
       self.json = {
         'layout': self.layout,
         'filename': self.filename,
         'hyperparams': self.hyperparams,
         'positions': self.round(positions.tolist()),
+        'clusters': clusters.labels_.tolist(),
+        'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
       }
       self.write_to_cache()
 
@@ -328,6 +343,9 @@ def validate_user_args(args):
   # make sure the user provided a pretrained model or text data for a new model
   if not any([args['model'], args['texts']]):
     raise Exception('Please provide either a --model or --texts argument')
+  # if the user specified a model check that it exists
+  if args['model'] and not os.path.exists(args['model']):
+    raise Exception('The specified model file does not exist')
   # check if the user asked for any invalid layouts
   invalid_layouts = [i for i in args['layouts'] if i not in layouts]
   if any(invalid_layouts):
@@ -360,6 +378,8 @@ def parse():
   parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
+  # shared combinatorial layout params
+  parser.add_argument('--n_clusters', type=int, nargs='+', default=[7], help='The number of clusters to identify')
   # layout parameters - tsne
   parser.add_argument('--tsne_perplexity', type=int, nargs='+', default=[30], help='The perplexity parameter for TSNE layouts')
   # layout parameters - umap
