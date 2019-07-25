@@ -51,8 +51,9 @@ class Manifest:
     self.strings = kwargs.get('strings', [])
     self.layouts = []
     for layouts in self.args['layouts']:
-      for idx, params in enumerate(self.get_layout_params(layouts)):
-        print(' * computing positions for', layouts, 'layout', idx+1)
+      params_list = self.get_layout_params(layouts)
+      for idx, params in enumerate(params_list):
+        print(' * computing', layouts, 'layout', idx+1, 'of', len(params_list))
         self.layouts.append(Layout(layout=layouts, params=params, df=self.df))
     self.write_web_assets()
 
