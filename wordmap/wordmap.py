@@ -260,6 +260,7 @@ class Model:
 
   def load_from_cache(self):
     '''Load a saved gensim model from the model cache'''
+    print(' * Loading pretrained model')
     if os.path.exists(self.args['model']):
       model = gensim.models.Word2Vec.load(self.args['model'])
       if isinstance(model, gensim.models.word2vec.Word2Vec):
@@ -285,7 +286,8 @@ class Model:
         min_count = self.args['min_count'],
         workers = self.args['workers'],
         callbacks = [EpochLogger()],
-        max_final_vocab = self.args.get('max_size', None)
+        max_final_vocab = self.args.get('max_size', None),
+        iter = self.args.get('iter', 20),
       )
     elif self.model_type == 'doc2vec':
       self.model = gensim.models.Doc2Vec(
@@ -295,6 +297,7 @@ class Model:
         min_count = self.args['min_count'],
         workers = self.args['workers'],
         callbacks = [EpochLogger()],
+        iter = self.args.get('iter', 20),
       )
     else:
       raise Exception('The requested model type is not supported:', self.model_type)
@@ -405,7 +408,7 @@ def parse():
   # input data parameters
   parser.add_argument('--texts', type=str, help='A glob of text files to process', required=False)
   parser.add_argument('--encoding', type=str, default='utf8', help='The encoding of input files', required=False)
-  # word2vec model parameters
+  # model parameters
   parser.add_argument('--model', type=str, help='Path to a Word2Vec or Doc2Vec model to load', required=False)
   parser.add_argument('--model_name', type=str, default='{}.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
   parser.add_argument('--model_type', type=str, default='word2vec', choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
@@ -413,6 +416,7 @@ def parse():
   parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating model vectors', required=False)
   parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the model', required=False)
   parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing input data', required=False)
+  parser.add_argument('--iter', type=int, default=20, help='The number of iterations to use when training a model')
   # layout parameters
   parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
   parser.add_argument('--max_size', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
