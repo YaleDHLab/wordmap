@@ -396,7 +396,7 @@ Wordmap.prototype.createGui = function() {
   this.gui.style.folder = this.gui.root.addFolder('Style');
 
   this.gui.style.wordScalar = this.gui.style.folder.add(this, 'wordScalar', 0.0, 0.01)
-    .name('font size')
+    .name('word size')
     .onFinishChange(this.draw.bind(this))
 
   this.gui.style.pointScalar = this.gui.style.folder.add(this, 'pointScalar', 0.0, 0.01)
