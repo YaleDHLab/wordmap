@@ -9,11 +9,11 @@ function Wordmap() {
   this.layout = null; // the currently selected layout
   this.heightScalar = 0.002; // controls mountain height
   // style parameters
-  this.wordScalar = 0.0003; // sizes up words
-  this.pointScalar = 0.0005; // sizes up points
+  this.wordScalar = 0.0015; // sizes up words
+  this.pointScalar = 0; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
-  this.background = '#fff'; // background color
-  this.color = '#000'; // text color
+  this.background = '#222'; // background color
+  this.color = '#fff'; // text color
   this.font = 'Monospace'; // font family
   this.mipmap = true; // toggles mipmaps in texture
   this.transitionDuration = 1.0; // time of transitions in seconds
@@ -87,6 +87,15 @@ Wordmap.prototype.createScene = function() {
     scene.add(axesHelper);
   }
 
+  // add ?stats=true to url to see rendering stats for a given host + browser
+  if (window.location.search.includes('stats=true')) {
+    this.stats = new Stats();
+    this.stats.domElement.style.position = 'absolute';
+    this.stats.domElement.style.top = '0px';
+    this.stats.domElement.style.right = '0px';
+    document.body.appendChild(this.stats.domElement);
+  }
+
   // store objects on instance
   this.scene = scene;
   this.camera = camera;
@@ -113,6 +122,9 @@ Wordmap.prototype.render = function() {
   if (this.state.transitionQueued) {
     this.state.transitionQueued = false;
     this.draw();
+  }
+  if (this.stats) {
+    this.stats.update();
   }
 }
 
@@ -226,7 +238,7 @@ Wordmap.prototype.initializeIfLoaded = function() {
   this.setGuiHyperparams();
   // draw the layout and render the scene
   this.draw(function() {
-    setTimeout(this.flyInCamera.bind(this), 500);
+    setTimeout(this.introduceScene.bind(this), 500);
     window.addEventListener('resize', this.onWindowResize.bind(this));
     document.querySelector('#search').value = this.initialQuery;
   }.bind(this));
@@ -284,6 +296,7 @@ Wordmap.prototype.draw = function(cb) {
     // if the meshes don't exist, initialize them
     if (!this.textMesh) {
       this.initializeMeshes();
+      this.setPointScale();
       this.state.transitioning = false;
       if (cb && typeof cb === 'function') cb();
     // if the meshes do exist, update them
@@ -528,6 +541,7 @@ Wordmap.prototype.getShaderMaterial = function() {
       cellSize:   { type: 'f', value: this.size / (this.size * 16), }, // letter size in map
       color:      { type: 'f', value: this.getColorUniform(), },
       tex:        { type: 't', value: this.data.characters.tex, },
+      colors:     { type: 'vec3', value: new Float32Array([1,2,3,4,5,6,7]), }
     },
     transparent: false,
   });
@@ -558,6 +572,7 @@ Wordmap.prototype.getHeightAt = function(x, y) {
 
 Wordmap.prototype.setBackgroundColor = function() {
   document.querySelector('body').style.background = this.background;
+  document.querySelector('body').style.transition = 'background-color 2s';
 }
 
 
@@ -630,7 +645,8 @@ Wordmap.prototype.flyTo = function(coords) {
 }
 
 
-Wordmap.prototype.flyInCamera = function() {
+Wordmap.prototype.introduceScene = function() {
+  this.updateTexture();
   this.renderer.domElement.style.opacity = 1;
   TweenLite.to(this.camera.position, 3.5, {
     z: 0.56,
