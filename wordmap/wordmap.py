@@ -8,6 +8,7 @@ from sklearn.cluster import KMeans
 from collections import defaultdict
 from flask_cors import CORS
 from os.path import join
+from lloyd import Field
 from ivis import Ivis
 from umap import UMAP
 import numpy as np
@@ -99,9 +100,10 @@ class Manifest:
 
   def get_manifest_json(self):
     '''Create a manifest.json file outlining the layout options availble'''
-    d = defaultdict(list)
+    d = defaultdict(lambda: defaultdict(list))
     for i in self.layouts:
-      d[i.layout].append({
+      d['params'] = self.args,
+      d['layouts'][i.layout].append({
         'filename': i.filename,
         'params': {k: str(v) for k, v in i.hyperparams.items()},
       })
@@ -216,19 +218,31 @@ class Layout:
     else:
       try:
         df = self.scale_data(df)
+        # find the direct model positions for this layout
         positions = self.get_model().fit_transform(df)
+        # find the k means clusters
         clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
         self.json = {
           'layout': self.layout,
           'filename': self.filename,
           'hyperparams': self.hyperparams,
           'positions': self.round(positions.tolist()),
+          'jittered': self.round(self.jitter_positions(positions)),
           'clusters': clusters.labels_.tolist(),
           'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
         }
         self.write_to_cache()
       except Exception as exc:
         print(' ! Failed to generate layout with params', self.params)
+
+  def jitter_positions(self, X):
+    '''Jitter the points in a 2D dataframe `X` using lloyd's algorithm'''
+    if self.params.n_components == 2 and self.params.lloyd_iterations:
+      jittered = Field(positions)
+      for i in range(self.params.lloyd_iterations):
+        jittered.relax()
+      return jittered
+    return None
 
   def scale_data(self, X):
     '''Scale a 2d array of points `X`'''
@@ -283,8 +297,10 @@ class Model:
       model = gensim.models.Word2Vec.load(self.args['model'])
       if isinstance(model, gensim.models.word2vec.Word2Vec):
         self.model_type = 'word2vec'
+        print(' * Loaded model with', len(model.wv.index2entity), 'words')
       elif isinstance(model, gensim.models.doc2vec.Doc2Vec):
         self.model_type = 'doc2vec'
+        print(' * Loaded model with', len(model.wv.index2entity), 'docs')
       else:
         raise Exception('The loaded model type could not be inferred. Please create a new model')
       return model
@@ -295,7 +311,7 @@ class Model:
     self.set_model(self.get_input_data())
 
   def set_model(self, input_data):
-    '''Return a model on the input data'''
+    '''Return a model trained on the input data'''
     if self.model_type == 'word2vec':
       self.model = gensim.models.Word2Vec(
         input_data,
@@ -307,6 +323,7 @@ class Model:
         max_final_vocab = self.args.get('max_size', None),
         iter = self.args.get('iter', 20),
       )
+      print(' * Created model with', len(model.wv.index2entity), 'words')
     elif self.model_type == 'doc2vec':
       self.model = gensim.models.Doc2Vec(
         input_data,
@@ -317,6 +334,7 @@ class Model:
         callbacks = [EpochLogger()],
         iter = self.args.get('iter', 20),
       )
+      print(' * Created model with', len(model.wv.index2entity), 'docs')
     else:
       raise Exception('The requested model type is not supported:', self.model_type)
 
@@ -432,7 +450,7 @@ def parse():
   parser.add_argument('--model_type', type=str, default='word2vec', choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
   parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in the model embeddings', required=False)
   parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating model vectors', required=False)
-  parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the model', required=False)
+  parser.add_argument('--min_count', type=int, default=5, help='Minimum occurrences of each word to be included in the model', required=False)
   parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing input data', required=False)
   parser.add_argument('--iter', type=int, default=20, help='The number of iterations to use when training a model')
   # layout parameters
@@ -440,6 +458,7 @@ def parse():
   parser.add_argument('--max_size', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
   parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
+  parser.add_argument('--lloyd_iterations', type=int, default=0, help='Number of Lloyd\'s algorithm iterations to run on each layout (requires n_components == 2)')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
   # shared combinatorial layout params
   parser.add_argument('--n_clusters', type=int, nargs='+', default=[7], help='The number of clusters to identify')

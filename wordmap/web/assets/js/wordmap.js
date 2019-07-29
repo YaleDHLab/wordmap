@@ -146,7 +146,7 @@ Wordmap.prototype.loadManifest = function() {
   // load manifest file with all available layouts and initialize first layout
   get('data/manifest.json', function(data) {
     this.data.manifest = JSON.parse(data);
-    this.data.layouts = Object.keys(this.data.manifest);
+    this.data.layouts = Object.keys(this.data.manifest.layouts);
     // store this asset in loaded assets and render if ready
     this.state.loaded['manifest'] = true;
     this.initializeIfLoaded();
@@ -256,7 +256,7 @@ Wordmap.prototype.allAssetsLoaded = function() {
 Wordmap.prototype.setHyperparams = function() {
   // store the distinct levels for each factor in the current layout's hyperparams
   var params = {};
-  this.data.manifest[this.layout].forEach(function(o) {
+  this.data.manifest.layouts[this.layout].forEach(function(o) {
     Object.keys(o.params).forEach(function(k) {
       if (!(k in params)) params[k] = [o.params[k]];
       if (params[k].indexOf(o.params[k]) == -1) params[k].push(o.params[k].toString());
