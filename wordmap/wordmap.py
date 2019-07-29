@@ -292,15 +292,15 @@ class Model:
 
   def load_from_cache(self):
     '''Load a saved gensim model from the model cache'''
-    print(' * Loading pretrained model')
+    print(' * loading pretrained model')
     if os.path.exists(self.args['model']):
       model = gensim.models.Word2Vec.load(self.args['model'])
       if isinstance(model, gensim.models.word2vec.Word2Vec):
         self.model_type = 'word2vec'
-        print(' * Loaded model with', len(model.wv.index2entity), 'words')
+        print(' * loaded model with', len(model.wv.index2entity), 'words')
       elif isinstance(model, gensim.models.doc2vec.Doc2Vec):
         self.model_type = 'doc2vec'
-        print(' * Loaded model with', len(model.wv.index2entity), 'docs')
+        print(' * loaded model with', len(model.wv.index2entity), 'docs')
       else:
         raise Exception('The loaded model type could not be inferred. Please create a new model')
       return model
@@ -320,10 +320,10 @@ class Model:
         min_count = self.args['min_count'],
         workers = self.args['workers'],
         callbacks = [EpochLogger()],
-        max_final_vocab = self.args.get('max_size', None),
+        max_final_vocab = self.args.get('max_n', None),
         iter = self.args.get('iter', 20),
       )
-      print(' * Created model with', len(model.wv.index2entity), 'words')
+      print(' * created model with', len(self.model.wv.index2entity), 'words')
     elif self.model_type == 'doc2vec':
       self.model = gensim.models.Doc2Vec(
         input_data,
@@ -334,7 +334,7 @@ class Model:
         callbacks = [EpochLogger()],
         iter = self.args.get('iter', 20),
       )
-      print(' * Created model with', len(model.wv.index2entity), 'docs')
+      print(' * created model with', len(self.model.wv.index2entity), 'docs')
     else:
       raise Exception('The requested model type is not supported:', self.model_type)
 
@@ -373,10 +373,10 @@ class Model:
     else:
       strings = [self.clean_filename(i) for i in self.texts]
       df = [self.model.docvecs[idx] for idx, _ in enumerate(strings)]
-    if self.args['max_size']:
-      print(' * limiting input string set to length', self.args['max_size'])
-      strings = strings[:self.args['max_size']]
-      df = np.array(df)[:self.args['max_size']]
+    if self.args['max_n']:
+      print(' * limiting input string set to length', self.args['max_n'])
+      strings = strings[:self.args['max_n']]
+      df = np.array(df)[:self.args['max_n']]
     manifest = Manifest(args=self.args, strings=strings, df=df)
 
   def clean_filename(self, path):
@@ -448,14 +448,14 @@ def parse():
   parser.add_argument('--model', type=str, help='Path to a Word2Vec or Doc2Vec model to load', required=False)
   parser.add_argument('--model_name', type=str, default='{}.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
   parser.add_argument('--model_type', type=str, default='word2vec', choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
-  parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in the model embeddings', required=False)
+  parser.add_argument('--size', type=int, default=64, help='Number of dimensions to include in the model embeddings', required=False)
   parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating model vectors', required=False)
   parser.add_argument('--min_count', type=int, default=5, help='Minimum occurrences of each word to be included in the model', required=False)
   parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing input data', required=False)
   parser.add_argument('--iter', type=int, default=20, help='The number of iterations to use when training a model')
   # layout parameters
   parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
-  parser.add_argument('--max_size', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
+  parser.add_argument('--max_n', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
   parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--lloyd_iterations', type=int, default=0, help='Number of Lloyd\'s algorithm iterations to run on each layout (requires n_components == 2)')
