@@ -4,7 +4,7 @@ import glob
 
 setup (
   name='wordmap',
-  version='0.0.4',
+  version='0.0.5',
   packages=['wordmap'],
   package_data={
     'wordmap': [
