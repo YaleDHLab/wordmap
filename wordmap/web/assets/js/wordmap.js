@@ -9,8 +9,8 @@ function Wordmap() {
   this.layout = null; // the currently selected layout
   this.heightScalar = 0.002; // controls mountain height
   // style parameters
-  this.wordScalar = 0.0015; // sizes up words
-  this.pointScalar = 0; // sizes up points
+  this.wordSize = 0.0015; // sizes up words
+  this.pointSize = 0; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#222'; // background color
   this.color = '#fff'; // text color
@@ -408,11 +408,11 @@ Wordmap.prototype.createGui = function() {
   // style folder
   this.gui.style.folder = this.gui.root.addFolder('Style');
 
-  this.gui.style.wordScalar = this.gui.style.folder.add(this, 'wordScalar', 0.0, 0.01)
+  this.gui.style.wordSize = this.gui.style.folder.add(this, 'wordSize', 0.0, 0.01)
     .name('word size')
     .onFinishChange(this.draw.bind(this))
 
-  this.gui.style.pointScalar = this.gui.style.folder.add(this, 'pointScalar', 0.0, 0.01)
+  this.gui.style.pointSize = this.gui.style.folder.add(this, 'pointSize', 0.0, 0.01)
     .name('point size')
     .onFinishChange(this.draw.bind(this))
 
@@ -519,7 +519,7 @@ Wordmap.prototype.getMeshAttrs = function() {
     attrs.point.clusters[iters.point.cluster++] = cluster;
     for (var c=0; c<word.length; c++) {
       var offsets = this.data.characters.map[word[c]] || this.data.characters.map['?'];
-      attrs.text.translations[iters.text.trans++] = x + (this.wordScalar * 0.9 * c);
+      attrs.text.translations[iters.text.trans++] = x + (this.wordSize * 0.9 * c);
       attrs.text.translations[iters.text.trans++] = y;
       attrs.text.translations[iters.text.trans++] = z;
       attrs.text.texOffsets[iters.text.offsets++] = offsets.x;
@@ -589,8 +589,8 @@ Wordmap.prototype.updateTexture = function() {
 
 Wordmap.prototype.setPointScale = function() {
   var windowScalar = window.devicePixelRatio * window.innerHeight;
-  this.textMesh.material.uniforms.pointScale.value = windowScalar * this.wordScalar;
-  this.pointMesh.material.uniforms.pointScale.value = windowScalar * this.pointScalar;
+  this.textMesh.material.uniforms.pointScale.value = windowScalar * this.wordSize;
+  this.pointMesh.material.uniforms.pointScale.value = windowScalar * this.pointSize;
   this.renderer.setPixelRatio(window.devicePixelRatio);
 }
 

@@ -4,7 +4,6 @@ from gensim.models.doc2vec import TaggedDocument
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import NMF
 from distutils.dir_util import copy_tree
-from sklearn.manifold import TSNE
 from sklearn.cluster import KMeans
 from collections import defaultdict
 from flask_cors import CORS
@@ -17,6 +16,7 @@ import itertools
 import calendar
 import argparse
 import warnings
+import sklearn
 import gensim
 import joblib
 import codecs
@@ -26,6 +26,14 @@ import time
 import json
 import os
 import re
+
+# optional acceleration
+try:
+  from MulticoreTSNE import MulticoreTSNE
+  multicore_tsne = True
+except:
+  from sklearn.manifold import TSNE
+  multicore_tsne = False
 
 # Store a reference to the location of this package
 template_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'web')
@@ -54,7 +62,10 @@ class Manifest:
       params_list = self.get_layout_params(layouts)
       for idx, params in enumerate(params_list):
         print(' * computing', layouts, 'layout', idx+1, 'of', len(params_list))
-        self.layouts.append(Layout(layout=layouts, params=params, df=self.df))
+        layout = Layout(layout=layouts, params=params, df=self.df)
+        # skip layouts that couldn't be processed
+        if layout.json:
+          self.layouts.append(layout)
     self.write_web_assets()
 
   def get_layout_params(self, layout):
@@ -172,6 +183,10 @@ class Layout:
         min_dist = self.params.get('umap_min_dist'),
       )
     elif self.layout == 'tsne':
+      if multicore_tsne:
+        return MulticoreTSNE(
+          n_components = 2, # only supports 2
+        )
       return TSNE(
         n_components = self.params.get('n_components'),
         verbose = self.params.get('verbose'),
@@ -199,18 +214,21 @@ class Layout:
     if cache:
       self.json = cache
     else:
-      df = self.scale_data(df)
-      positions = self.get_model().fit_transform(df)
-      clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
-      self.json = {
-        'layout': self.layout,
-        'filename': self.filename,
-        'hyperparams': self.hyperparams,
-        'positions': self.round(positions.tolist()),
-        'clusters': clusters.labels_.tolist(),
-        'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
-      }
-      self.write_to_cache()
+      try:
+        df = self.scale_data(df)
+        positions = self.get_model().fit_transform(df)
+        clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
+        self.json = {
+          'layout': self.layout,
+          'filename': self.filename,
+          'hyperparams': self.hyperparams,
+          'positions': self.round(positions.tolist()),
+          'clusters': clusters.labels_.tolist(),
+          'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
+        }
+        self.write_to_cache()
+      except Exception as exc:
+        print(' ! Failed to generate layout with params', self.params)
 
   def scale_data(self, X):
     '''Scale a 2d array of points `X`'''
