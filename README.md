@@ -84,7 +84,8 @@ python wordmap/wordmap.py \
   --umap_n_neighbors 2 20 200 \
   --umap_min_dist 0.01 0.1 1.0 \
   --model "models/word2vec/1563838742.model" \
-  --n_clusters 10 25
+  --n_clusters 10 25 \
+  --iter 100
 ```
 
 ## Custom Vertex Positions
