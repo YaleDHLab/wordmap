@@ -27,6 +27,7 @@ setup (
     'gunicorn>=19.7.1',
     'ivis>=1.2.3',
     'joblib>=0.13.2',
+    'lloyd>=0.0.7',
     'matplotlib>=2.0.0',
     'numpy>=1.15.1',
     'PyWavefront>=1.0.5',

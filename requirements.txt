@@ -5,6 +5,7 @@ Flask-Cors>=3.0.3
 gensim>=3.6.0
 glob2>=0.6
 gunicorn>=19.7.1
+lloyd>=0.0.7
 matplotlib>=2.0.0
 numpy>=1.15.1
 PyWavefront>=1.0.5
