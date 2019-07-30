@@ -11,6 +11,7 @@
     margin: 0;
     overflow: hidden;
     font-family: Open Sans;
+    background: #222;
   }
 
   canvas {
@@ -274,6 +275,12 @@
     vec4 cam4 = vec4(cameraPosition, 1.0);
     gl_PointSize = (pointScale / -mvPosition.z);
 
+    // pseudo-discard pixels if the user has set this mesh's size to 0
+    if (false) {
+      highp int scaleInt = int(pointScale);
+      if (scaleInt == 0) gl_PointSize = 0.0;
+    }
+
     vDistance = -mvPosition.z;
 
     #ifdef WORDS
@@ -288,13 +295,14 @@
   <script id='fragment-shader' type='x-shader/x-fragment'>
   precision mediump float;
 
+  uniform float transition;
   uniform sampler2D tex;
   uniform vec3 fogColor;
   uniform float cellSize;
   uniform float fogNear;
   uniform float fogFar;
   uniform float color;
-  uniform float transition;
+  uniform vec3 colors;
 
   varying float vDistance;
 
@@ -306,10 +314,11 @@
   #endif
 
   vec4 rotColor(in float f) {
+    float c = mod(0.0+f, 1.0);
     return vec4(
-      mod(0.0+f, 1.0),
-      mod(0.3+f, 1.0),
-      mod(0.6+f, 1.0),
+      c,
+      c,
+      c,
       1.0
     );
   }
@@ -328,7 +337,9 @@
       gl_FragColor = mix(colorCurrent, colorTarget, transition);
     #endif
 
-    gl_FragColor.a += pow(vDistance, 2.0) / 5.0;
+    if (false) {
+      gl_FragColor.a += pow(vDistance, 2.0) / 5.0;
+    }
   }
   </script>
 
@@ -337,5 +348,6 @@
   <script src='assets/js/tweenlite.min.js'></script>
   <script src='assets/js/dat.gui.min.js'></script>
   <script src='assets/js/wordmap.js'></script>
+  <script src='assets/js/stats.js'></script>
 </body>
 </html>

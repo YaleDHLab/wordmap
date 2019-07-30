@@ -38,7 +38,7 @@ The following flags can be passed to the wordmap command:
 
 `--encoding` The encoding of input files
 
-`--max_words` The maximum number of words to include in the visualization
+`--max_n` The maximum number of words/docs to include in the visualization
 
 `--layouts` The layouts to include in the output data `{umap, tsne, grid}`
 
@@ -71,7 +71,7 @@ wordmap --texts "data/*.txt" --layouts umap tsne grid
 Create a wordmap using a saved Word2Vec model with 3 dimsions and a maximum of 10000 words:
 
 ```bash
-wordmap --model "1563222036.model" --n_components 3 --max_words 10000
+wordmap --model "1563222036.model" --n_components 3 --max_n 10000
 ```
 
 Create a wordmap with several layouts, each with multiple parameter steps:
@@ -84,7 +84,8 @@ python wordmap/wordmap.py \
   --umap_n_neighbors 2 20 200 \
   --umap_min_dist 0.01 0.1 1.0 \
   --model "models/word2vec/1563838742.model" \
-  --n_clusters 7 11
+  --n_clusters 10 25 \
+  --iter 100
 ```
 
 ## Custom Vertex Positions

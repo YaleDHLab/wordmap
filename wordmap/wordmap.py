@@ -1,13 +1,14 @@
 from flask import Flask, jsonify, request, send_from_directory, render_template
 from gensim.models.callbacks import CallbackAny2Vec
+from gensim.models.doc2vec import TaggedDocument
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import NMF
 from distutils.dir_util import copy_tree
-from sklearn.manifold import TSNE
 from sklearn.cluster import KMeans
 from collections import defaultdict
 from flask_cors import CORS
 from os.path import join
+from lloyd import Field
 from ivis import Ivis
 from umap import UMAP
 import numpy as np
@@ -16,6 +17,7 @@ import itertools
 import calendar
 import argparse
 import warnings
+import sklearn
 import gensim
 import joblib
 import codecs
@@ -25,6 +27,14 @@ import time
 import json
 import os
 import re
+
+# optional acceleration
+try:
+  from MulticoreTSNE import MulticoreTSNE
+  multicore_tsne = True
+except:
+  from sklearn.manifold import TSNE
+  multicore_tsne = False
 
 # Store a reference to the location of this package
 template_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'web')
@@ -50,9 +60,13 @@ class Manifest:
     self.strings = kwargs.get('strings', [])
     self.layouts = []
     for layouts in self.args['layouts']:
-      for idx, params in enumerate(self.get_layout_params(layouts)):
-        print(' * computing positions for', layouts, 'layout', idx+1)
-        self.layouts.append(Layout(layout=layouts, params=params, df=self.df))
+      params_list = self.get_layout_params(layouts)
+      for idx, params in enumerate(params_list):
+        print(' * computing', layouts, 'layout', idx+1, 'of', len(params_list))
+        layout = Layout(layout=layouts, params=params, df=self.df)
+        # skip layouts that couldn't be processed
+        if layout.json:
+          self.layouts.append(layout)
     self.write_web_assets()
 
   def get_layout_params(self, layout):
@@ -86,9 +100,10 @@ class Manifest:
 
   def get_manifest_json(self):
     '''Create a manifest.json file outlining the layout options availble'''
-    d = defaultdict(list)
+    d = defaultdict(lambda: defaultdict(list))
     for i in self.layouts:
-      d[i.layout].append({
+      d['params'] = self.args,
+      d['layouts'][i.layout].append({
         'filename': i.filename,
         'params': {k: str(v) for k, v in i.hyperparams.items()},
       })
@@ -170,6 +185,10 @@ class Layout:
         min_dist = self.params.get('umap_min_dist'),
       )
     elif self.layout == 'tsne':
+      if multicore_tsne:
+        return MulticoreTSNE(
+          n_components = 2, # only supports 2
+        )
       return TSNE(
         n_components = self.params.get('n_components'),
         verbose = self.params.get('verbose'),
@@ -197,18 +216,33 @@ class Layout:
     if cache:
       self.json = cache
     else:
-      df = self.scale_data(df)
-      positions = self.get_model().fit_transform(df)
-      clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
-      self.json = {
-        'layout': self.layout,
-        'filename': self.filename,
-        'hyperparams': self.hyperparams,
-        'positions': self.round(positions.tolist()),
-        'clusters': clusters.labels_.tolist(),
-        'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
-      }
-      self.write_to_cache()
+      try:
+        df = self.scale_data(df)
+        # find the direct model positions for this layout
+        positions = self.get_model().fit_transform(df)
+        # find the k means clusters
+        clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
+        self.json = {
+          'layout': self.layout,
+          'filename': self.filename,
+          'hyperparams': self.hyperparams,
+          'positions': self.round(positions.tolist()),
+          'jittered': self.round(self.jitter_positions(positions)),
+          'clusters': clusters.labels_.tolist(),
+          'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
+        }
+        self.write_to_cache()
+      except Exception as exc:
+        print(' ! Failed to generate layout with params', self.params, exc)
+
+  def jitter_positions(self, X):
+    '''Jitter the points in a 2D dataframe `X` using lloyd's algorithm'''
+    if self.params.n_components == 2 and self.params.lloyd_iterations:
+      jittered = Field(positions)
+      for i in range(self.params.lloyd_iterations):
+        jittered.relax()
+      return jittered
+    return None
 
   def scale_data(self, X):
     '''Scale a 2d array of points `X`'''
@@ -234,17 +268,23 @@ class EpochLogger(CallbackAny2Vec):
 
   def on_epoch_end(self, model):
     self.epoch_count += 1
-    print('   * completed {0} Word2Vec epochs'.format(self.epoch_count))
+    print('   * completed {0} training epochs'.format(self.epoch_count))
 
 
-class Word2Vec:
+class Model:
   def __init__(self, *args, **kwargs):
     self.args = kwargs.get('args', {})
     self.texts = glob2.glob(self.args['texts'])
-    self.cache_dir = os.path.join(kwargs.get('cache_dir', cache_dir), 'word2vec')
-    self.cache_path = self.get_cache_path()
-    self.load_model()
-    self.plot()
+    if self.args.get('model', False):
+      self.model = self.load_from_cache()
+    else:
+      self.model = None
+      self.model_type = self.args['model_type']
+      self.cache_dir = os.path.join(kwargs.get('cache_dir', cache_dir), self.model_type)
+      self.cache_path = self.get_cache_path()
+      self.create_model()
+      self.save_to_cache()
+    self.create_manifest()
 
   def get_cache_path(self):
     '''Return the path wherein this model will be persisted'''
@@ -252,34 +292,57 @@ class Word2Vec:
 
   def load_from_cache(self):
     '''Load a saved gensim model from the model cache'''
+    print(' * loading pretrained model')
     if os.path.exists(self.args['model']):
-      return gensim.models.Word2Vec.load(self.args['model'])
+      model = gensim.models.Word2Vec.load(self.args['model'])
+      if isinstance(model, gensim.models.word2vec.Word2Vec):
+        self.model_type = 'word2vec'
+        print(' * loaded model with', len(model.wv.index2entity), 'words')
+      elif isinstance(model, gensim.models.doc2vec.Doc2Vec):
+        self.model_type = 'doc2vec'
+        print(' * loaded model with', len(model.wv.index2entity), 'docs')
+      else:
+        raise Exception('The loaded model type could not be inferred. Please create a new model')
+      return model
+
+  def create_model(self):
+    '''Create a gensim Word2Vec model with the input data'''
+    self.log_files()
+    self.set_model(self.get_input_data())
+
+  def set_model(self, input_data):
+    '''Return a model trained on the input data'''
+    if self.model_type == 'word2vec':
+      self.model = gensim.models.Word2Vec(
+        input_data,
+        size = self.args['size'],
+        window = self.args['window'],
+        min_count = self.args['min_count'],
+        workers = self.args['workers'],
+        callbacks = [EpochLogger()],
+        max_final_vocab = self.args.get('max_n', None),
+        iter = self.args.get('iter', 20),
+      )
+      print(' * created model with', len(self.model.wv.index2entity), 'words')
+    elif self.model_type == 'doc2vec':
+      self.model = gensim.models.Doc2Vec(
+        input_data,
+        vector_size = self.args['size'],
+        window = self.args['window'],
+        min_count = self.args['min_count'],
+        workers = self.args['workers'],
+        callbacks = [EpochLogger()],
+        iter = self.args.get('iter', 20),
+      )
+      print(' * created model with', len(self.model.wv.index2entity), 'docs')
+    else:
+      raise Exception('The requested model type is not supported:', self.model_type)
 
   def save_to_cache(self):
     '''Save self.model to the model cache'''
     if not os.path.exists(self.cache_dir):
       os.makedirs(self.cache_dir)
     self.model.save(self.cache_path)
-
-  def load_model(self):
-    '''Return a gensim Word2Vec model (from the cache if possible)'''
-    if self.args.get('model', None):
-      self.model = self.load_from_cache()
-    else:
-      self.model = self.create_model()
-
-  def create_model(self):
-    '''Create a gensim Word2Vec model with the input data'''
-    self.log_files()
-    self.model = gensim.models.Word2Vec(self.get_word_lists(),
-      size = self.args['size'],
-      window = self.args['window'],
-      min_count = self.args['min_count'],
-      workers = self.args['workers'],
-      callbacks = [EpochLogger()],
-    )
-    self.save_to_cache()
-    return self.model
 
   def log_files(self):
     '''Print a note indicating the files this Word2Vec instance will process'''
@@ -290,21 +353,38 @@ class Word2Vec:
       sep + sep.join(display_files))
     )
 
-  def get_word_lists(self):
+  def get_input_data(self):
     '''Return a 2d list of words in self.files'''
-    word_lists = []
-    for i in self.texts:
-      with codecs.open(i, 'r', self.args['encoding']) as f:
-        word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
-    return word_lists
+    if self.model_type in ['word2vec', 'doc2vec']:
+      word_lists = []
+      for i in self.texts:
+        with codecs.open(i, 'r', self.args['encoding']) as f:
+          word_lists.append(re.sub(r'[^\w\s]','',f.read().lower()).split())
+      if self.model_type == 'word2vec':
+        return word_lists
+      else:
+        return [TaggedDocument(doc, [i]) for i, doc in enumerate(word_lists)]
 
-  def plot(self):
+  def create_manifest(self):
     '''Create a plot from this model'''
-    words = self.model.wv.index2entity
-    if self.args['max_words']:
-      words = words[:self.args['max_words']]
-    df = np.array([self.model.wv[w] for w in words])
-    manifest = Manifest(args=self.args, df=df, strings=words)
+    if self.model_type == 'word2vec':
+      strings = self.model.wv.index2entity
+      df = np.array([self.model.wv[w] for w in strings])
+    else:
+      strings = [self.clean_filename(i) for i in self.texts]
+      df = [self.model.docvecs[idx] for idx, _ in enumerate(strings)]
+    if self.args['max_n']:
+      print(' * limiting input string set to length', self.args['max_n'])
+      strings = strings[:self.args['max_n']]
+      df = np.array(df)[:self.args['max_n']]
+    manifest = Manifest(args=self.args, strings=strings, df=df)
+
+  def clean_filename(self, path):
+    '''Given the path to a file return a clean filename for displaying'''
+    s = os.path.splitext(os.path.basename(path))[0].lower()
+    s = re.sub(r'[^\w\s]',' ', s)
+    s = ' '.join(i[0].upper() + ''.join(i[1:]) for i in s.split())
+    return s
 
 
 def serve():
@@ -339,6 +419,9 @@ def validate_user_args(args):
   # make sure the user provided a pretrained model or text data for a new model
   if not any([args['model'], args['texts']]):
     raise Exception('Please provide either a --model or --texts argument')
+  # if the user specified a model type make sure it's supported
+  if args['model_type'] not in ['word2vec', 'doc2vec']:
+    raise Exception('The requested model type is not supported')
   # if the user specified a model check that it exists
   if args['model'] and not os.path.exists(args['model']):
     raise Exception('The specified model file does not exist')
@@ -361,18 +444,21 @@ def parse():
   # input data parameters
   parser.add_argument('--texts', type=str, help='A glob of text files to process', required=False)
   parser.add_argument('--encoding', type=str, default='utf8', help='The encoding of input files', required=False)
-  # word2vec model parameters
-  parser.add_argument('--model', type=str, help='Path to a Word2Vec model to load', required=False)
+  # model parameters
+  parser.add_argument('--model', type=str, help='Path to a Word2Vec or Doc2Vec model to load', required=False)
   parser.add_argument('--model_name', type=str, default='{}.model'.format(calendar.timegm(time.gmtime())), help='The name to use when saving a word2vec model')
-  parser.add_argument('--size', type=int, default=50, help='Number of dimensions to include in Word2Vec vectors', required=False)
-  parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating Word2Vec model', required=False)
-  parser.add_argument('--min_count', type=int, default=20, help='Minimum occurrences of each word to be included in the Word2Vec model', required=False)
-  parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing user data', required=False)
+  parser.add_argument('--model_type', type=str, default='word2vec', choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
+  parser.add_argument('--size', type=int, default=64, help='Number of dimensions to include in the model embeddings', required=False)
+  parser.add_argument('--window', type=int, default=5, help='Number of words to include in windows when creating model vectors', required=False)
+  parser.add_argument('--min_count', type=int, default=5, help='Minimum occurrences of each word to be included in the model', required=False)
+  parser.add_argument('--workers', type=int, default=7, help='The number of computer cores to use when processing input data', required=False)
+  parser.add_argument('--iter', type=int, default=20, help='The number of iterations to use when training a model')
   # layout parameters
   parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
-  parser.add_argument('--max_words', type=int, default=100000, help='Maximum number of words to include in visualization', required=False)
+  parser.add_argument('--max_n', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
   parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
+  parser.add_argument('--lloyd_iterations', type=int, default=0, help='Number of Lloyd\'s algorithm iterations to run on each layout (requires n_components == 2)')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
   # shared combinatorial layout params
   parser.add_argument('--n_clusters', type=int, nargs='+', default=[7], help='The number of clusters to identify')
@@ -389,7 +475,7 @@ def parse():
   # validate args
   validate_user_args(args)
   # find or create a word2vec model
-  model = Word2Vec(args=args)
+  model = Model(args=args)
 
 if __name__ == '__main__':
   parse()
