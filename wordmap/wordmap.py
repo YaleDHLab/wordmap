@@ -186,9 +186,7 @@ class Layout:
       )
     elif self.layout == 'tsne':
       if multicore_tsne:
-        return MulticoreTSNE(
-          n_components = 2, # only supports 2
-        )
+        return MulticoreTSNE()
       return TSNE(
         n_components = self.params.get('n_components'),
         verbose = self.params.get('verbose'),
@@ -227,7 +225,7 @@ class Layout:
           'filename': self.filename,
           'hyperparams': self.hyperparams,
           'positions': self.round(positions.tolist()),
-          'jittered': self.round(self.jitter_positions(positions)),
+          'jittered': self.jitter_positions(positions),
           'clusters': clusters.labels_.tolist(),
           'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
         }
@@ -237,11 +235,12 @@ class Layout:
 
   def jitter_positions(self, X):
     '''Jitter the points in a 2D dataframe `X` using lloyd's algorithm'''
-    if self.params.n_components == 2 and self.params.lloyd_iterations:
+    if self.params['n_components'] == 2 and self.params.get('lloyd_iterations', None):
       jittered = Field(positions)
-      for i in range(self.params.lloyd_iterations):
+      for i in range(self.params['lloyd_iterations']):
+        print(' * running lloyd iteration', i)
         jittered.relax()
-      return jittered
+      return self.round(jittered)
     return None
 
   def scale_data(self, X):
@@ -373,7 +372,7 @@ class Model:
     else:
       strings = [self.clean_filename(i) for i in self.texts]
       df = [self.model.docvecs[idx] for idx, _ in enumerate(strings)]
-    if self.args['max_n']:
+    if self.args['max_n'] and len(strings) > self.args['max_n']:
       print(' * limiting input string set to length', self.args['max_n'])
       strings = strings[:self.args['max_n']]
       df = np.array(df)[:self.args['max_n']]
