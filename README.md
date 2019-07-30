@@ -74,6 +74,19 @@ Create a wordmap using a saved Word2Vec model with 3 dimsions and a maximum of 1
 wordmap --model "1563222036.model" --n_components 3 --max_words 10000
 ```
 
+Create a wordmap with several layouts, each with multiple parameter steps:
+
+```bash
+python wordmap/wordmap.py \
+  --texts "data/philosophical_transactions/*.txt" \
+  --layouts tsne umap grid \
+  --tsne_perplexity 5 25 100 \
+  --umap_n_neighbors 2 20 200 \
+  --umap_min_dist 0.01 0.1 1.0 \
+  --model "models/word2vec/1563838742.model" \
+  --n_clusters 7 11
+```
+
 ## Custom Vertex Positions
 
 To create a plot of text data with custom word positions, one can create `web/wordmap-positions.json` with the following format:
