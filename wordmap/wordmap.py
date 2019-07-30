@@ -233,7 +233,7 @@ class Layout:
         }
         self.write_to_cache()
       except Exception as exc:
-        print(' ! Failed to generate layout with params', self.params)
+        print(' ! Failed to generate layout with params', self.params, exc)
 
   def jitter_positions(self, X):
     '''Jitter the points in a 2D dataframe `X` using lloyd's algorithm'''
