@@ -1,6 +1,6 @@
 # Wordmap
 
-> Visualizing large collections of text data with WebGL
+> Visualize large collections of text data with WebGL
 
 ![App preview](./wordmap/web/assets/images/preview.png?raw=true)
 
@@ -87,33 +87,3 @@ python wordmap/wordmap.py \
   --n_clusters 10 25 \
   --iter 100
 ```
-
-## Custom Vertex Positions
-
-To create a plot of text data with custom word positions, one can create `web/wordmap-positions.json` with the following format:
-
-```bash
-[
-  {
-    "name": "cat-on-mat-layout",
-    "words": [
-      "the",
-      "cat",
-      "sat",
-      "on",
-      "the",
-      "map"
-    ],
-    "positions": [
-      [0.44798019, 0.34936568, 0.24417208],
-      [0.86653381, 0.51266891, 0.4364447 ],
-      [0.51050636, 0.94120338, 0.37768034],
-      [0.40554792, 0.82156551, 0.9344524 ],
-      [0.70673001, 0.40564123, 0.90841559],
-      [0.79450194, 0.65910087, 0.57480824]
-    ]
-  }
-]
-```
-
-This file could contain multiple layouts, but each layout needs the `name`, `words`, and `positions` attributes.
