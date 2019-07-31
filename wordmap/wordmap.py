@@ -6,6 +6,7 @@ from sklearn.decomposition import NMF
 from distutils.dir_util import copy_tree
 from sklearn.cluster import KMeans
 from collections import defaultdict
+from scipy.misc import imread
 from flask_cors import CORS
 from os.path import join
 from lloyd import Field
@@ -46,7 +47,7 @@ target_dir = join(os.getcwd(), 'web')
 cache_dir = 'models'
 
 # List of all possible layout options
-layouts = ['ivis', 'umap', 'tsne', 'grid']
+layouts = ['ivis', 'umap', 'tsne', 'grid', 'img']
 
 # List of layout combinatorial fields applied after layouts are computed
 post_layout_params = ['n_clusters']
@@ -205,6 +206,11 @@ class Layout:
       clf = rasterfairy
       setattr(clf, 'fit_transform', fit_transform)
       return clf
+    elif self.layout == 'img':
+      class ImgLayout:
+        def fit_transform(X):
+          return img_to_vertices(self.params.get('img_path'), X.shape[0])
+      return ImgLayout()
     else:
       print('Warning: received request for unsupported classifier')
 
@@ -386,6 +392,33 @@ class Model:
     return s
 
 
+def img_to_vertices(path, n):
+  '''
+  Transform input image to `n` vertices using Floyd-Steinberg dithering
+  '''
+  pix = imread(path, mode='L').T # col-major order
+  w, h = pix.shape
+  for y in range(h):
+    for x in range(w):
+      old = pix[x, y]
+      new = 0 if old < 127 else 255
+      pix[x, y] = new
+      quant_error = old - new
+      if x < w - 1:
+        pix[x + 1, y] += quant_error * 7 // 16
+      if x > 0 and y < h - 1:
+        pix[x - 1, y + 1] += quant_error * 3 // 16
+      if y < h - 1:
+        pix[x, y + 1] += quant_error * 5 // 16
+      if x < w - 1 and y < h - 1:
+        pix[x + 1, y + 1] += quant_error * 1 // 16
+  pix = pix.T # row-major order
+  indices = np.argwhere(pix == 0)
+  selected = indices[np.random.choice(len(indices), size=n, replace=indices.shape[0]<n)]
+  print(' * Floyd-Steinberg dithering selected', n, 'verts from', indices.shape[0], 'in img')
+  return selected
+
+
 def serve():
   '''
   Method to serve the content in ./web
@@ -455,7 +488,8 @@ def parse():
   # layout parameters
   parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
   parser.add_argument('--max_n', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
-  parser.add_argument('--obj_file', type=str, help='An .obj file to control the output visualization shape', required=False)
+  #parser.add_argument('--obj_file', type=str, help='The path to an .obj file to control the output layout', required=False)
+  parser.add_argument('--img_file', type=str, help='The path to a .jpg or .png file to control the output layout')
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--lloyd_iterations', type=int, default=0, help='Number of Lloyd\'s algorithm iterations to run on each layout (requires n_components == 2)')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
