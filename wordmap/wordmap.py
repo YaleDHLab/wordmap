@@ -208,9 +208,11 @@ class Layout:
       return clf
     elif self.layout == 'img':
       class ImgLayout:
-        def fit_transform(X):
-          return img_to_vertices(self.params.get('img_path'), X.shape[0])
-      return ImgLayout()
+        def __init__(self, img_path):
+          self.img_path = img_path
+        def fit_transform(self, X):
+          return img_to_vertices(self.img_path, X.shape[0])
+      return ImgLayout(self.params.get('image_file'))
     else:
       print('Warning: received request for unsupported classifier')
 
@@ -220,24 +222,24 @@ class Layout:
     if cache:
       self.json = cache
     else:
-      try:
-        df = self.scale_data(df)
-        # find the direct model positions for this layout
-        positions = self.get_model().fit_transform(df)
-        # find the k means clusters
-        clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
-        self.json = {
-          'layout': self.layout,
-          'filename': self.filename,
-          'hyperparams': self.hyperparams,
-          'positions': self.round(positions.tolist()),
-          'jittered': self.jitter_positions(positions),
-          'clusters': clusters.labels_.tolist(),
-          'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
-        }
-        self.write_to_cache()
-      except Exception as exc:
-        print(' ! Failed to generate layout with params', self.params, exc)
+      #try:
+      df = self.scale_data(df)
+      # find the direct model positions for this layout
+      positions = self.get_model().fit_transform(df)
+      # find the k means clusters
+      clusters = KMeans(n_clusters=self.params['n_clusters'], random_state=0).fit(positions)
+      self.json = {
+        'layout': self.layout,
+        'filename': self.filename,
+        'hyperparams': self.hyperparams,
+        'positions': self.round(positions.tolist()),
+        'jittered': self.jitter_positions(positions),
+        'clusters': clusters.labels_.tolist(),
+        'cluster_centers': self.round(clusters.cluster_centers_.tolist()),
+      }
+      self.write_to_cache()
+      #except Exception as exc:
+      #  print(' ! Failed to generate layout with params', self.params, exc)
 
   def jitter_positions(self, X):
     '''Jitter the points in a 2D dataframe `X` using lloyd's algorithm'''
@@ -396,6 +398,7 @@ def img_to_vertices(path, n):
   '''
   Transform input image to `n` vertices using Floyd-Steinberg dithering
   '''
+  print(' * preparing to extract', n, 'vertices from image file', path)
   pix = imread(path, mode='L').T # col-major order
   w, h = pix.shape
   for y in range(h):
@@ -489,7 +492,7 @@ def parse():
   parser.add_argument('--layouts', type=str, nargs='+', default=['umap', 'grid'], choices=layouts)
   parser.add_argument('--max_n', type=int, default=100000, help='Maximum number of words/docs to include in visualization', required=False)
   #parser.add_argument('--obj_file', type=str, help='The path to an .obj file to control the output layout', required=False)
-  parser.add_argument('--img_file', type=str, help='The path to a .jpg or .png file to control the output layout')
+  parser.add_argument('--image_file', type=str, help='The path to a .jpg or .png file to control the output layout')
   parser.add_argument('--n_components', type=int, default=2, choices=[2, 3], help='Number of dimensions in the embeddings / visualization')
   parser.add_argument('--lloyd_iterations', type=int, default=0, help='Number of Lloyd\'s algorithm iterations to run on each layout (requires n_components == 2)')
   parser.add_argument('--verbose', type=bool, default=False, help='If true, logs progress during layout construction')
