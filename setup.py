@@ -4,7 +4,7 @@ import glob
 
 setup (
   name='wordmap',
-  version='0.0.5',
+  version='0.0.6',
   packages=['wordmap'],
   package_data={
     'wordmap': [
@@ -32,7 +32,7 @@ setup (
     'numpy>=1.15.1',
     'PyWavefront>=1.0.5',
     'scikit-learn>=0.21.2',
-    'scipy>=1.1.0',
+    'scipy==1.1.0',
     'umap-learn>=0.3.8',
     'yale_dhlab_rasterfairy>=1.0.3',
   ],

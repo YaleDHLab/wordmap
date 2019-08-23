@@ -9,7 +9,7 @@ function Wordmap() {
   this.layout = null; // the currently selected layout
   this.heightScalar = 0.002; // controls mountain height
   // style parameters
-  this.wordSize = 0.0015; // sizes up words
+  this.wordSize = 0.0005; // sizes up words
   this.pointSize = 0; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#222'; // background color
@@ -229,7 +229,7 @@ Wordmap.prototype.initializeIfLoaded = function() {
   // set the initial layout state and render the initial layout
   if (!this.allAssetsLoaded()) return;
   // set the initial layout state and add the mesh to the scene
-  this.layout = this.data.layouts[0];
+  if (!this.layout) this.layout = this.data.layouts[0];
   // initialize the gui to which we'll add layout hyperparms
   this.createGui();
   // set the hyperparams for the current layout
@@ -664,8 +664,7 @@ Wordmap.prototype.getWordCoords = function(word) {
 **/
 
 Wordmap.prototype.queryWords = function(s) {
-  var map = this.data.layouts[this.layout].wordToCoords;
-  return Object.keys(map).filter(function(w) {
+  return this.data.texts.filter(function(w) {
     return w.toLowerCase().indexOf(s.toLowerCase()) > -1;
   });
 }
