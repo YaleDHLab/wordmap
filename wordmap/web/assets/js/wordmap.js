@@ -569,7 +569,7 @@ Wordmap.prototype.getHeightAt = function(x, y) {
   var row = Math.floor(y * (this.data.heightmap.height-1)),
       col = Math.floor(x * (this.data.heightmap.width-1)),
       idx = (row * this.data.heightmap.width * 4) + (col * 4),
-      z = (this.data.heightmap.data[idx] + Math.random()) * this.heightScalar;
+      z = (this.data.heightmap.data[idx]) * this.heightScalar;
   return z;
 }
 
