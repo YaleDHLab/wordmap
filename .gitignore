@@ -6,8 +6,6 @@
 *.egg-info
 *.model
 *.index
-*.png
-*.obj
 __pycache__
 .ipynb_checkpoints
 clean.sh
@@ -16,4 +14,3 @@ build
 data
 web
 models
-examples
