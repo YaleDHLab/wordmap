@@ -1,5 +1,6 @@
 <html>
 <head>
+  <meta charset='UTF-8'>
   <style>
   html,
   body {
@@ -220,7 +221,6 @@
   }
 
   </style>
-  <meta charset='UTF-8'>
   <link rel='stylesheet' href='https://fonts.googleapis.com/css?family=Open+Sans:300,400,600'>
 </head>
 <body>
@@ -295,10 +295,11 @@
   <script id='fragment-shader' type='x-shader/x-fragment'>
   precision mediump float;
 
+  uniform float colorPoints;
   uniform float transition;
   uniform sampler2D tex;
-  uniform vec3 fogColor;
   uniform float cellSize;
+  uniform vec3 fogColor;
   uniform float fogNear;
   uniform float fogFar;
   uniform float color;
@@ -332,9 +333,14 @@
     #else
       // make point circular
       if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-      vec4 colorCurrent = rotColor(vCluster);
-      vec4 colorTarget = rotColor(vClusterTarget);
-      gl_FragColor = mix(colorCurrent, colorTarget, transition);
+      // color the points
+      if (colorPoints > 0.5) {
+        vec4 colorCurrent = rotColor(vCluster);
+        vec4 colorTarget = rotColor(vClusterTarget);
+        gl_FragColor = mix(colorCurrent, colorTarget, transition);
+      } else {
+        gl_FragColor = vec4(vec3(color), 1.0);
+      }
     #endif
 
     if (false) {

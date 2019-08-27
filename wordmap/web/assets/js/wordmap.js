@@ -9,11 +9,12 @@ function Wordmap() {
   this.layout = null; // the currently selected layout
   this.heightScalar = 0.002; // controls mountain height
   // style parameters
-  this.wordSize = 0.0005; // sizes up words
+  this.wordSize = 0.0015; // sizes up words
   this.pointSize = 0; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#222'; // background color
   this.color = '#fff'; // text color
+  this.colorPoints = false; // bool indicating whether to color points
   this.font = 'Monospace'; // font family
   this.mipmap = true; // toggles mipmaps in texture
   this.transitionDuration = 1.0; // time of transitions in seconds
@@ -229,7 +230,7 @@ Wordmap.prototype.initializeIfLoaded = function() {
   // set the initial layout state and render the initial layout
   if (!this.allAssetsLoaded()) return;
   // set the initial layout state and add the mesh to the scene
-  if (!this.layout) this.layout = this.data.layouts[0];
+  this.layout = this.data.layouts[0];
   // initialize the gui to which we'll add layout hyperparms
   this.createGui();
   // set the hyperparams for the current layout
@@ -303,6 +304,7 @@ Wordmap.prototype.draw = function(cb) {
     } else {
       var attrs = this.getMeshAttrs();
       this.setPointScale();
+      this.pointMesh.material.uniforms.colorPoints.value = this.colorPoints ? 1.0 : 0.0;
       this.textMesh.geometry.attributes.target.array = attrs.text.translations;
       this.textMesh.geometry.attributes.target.needsUpdate = true;
       this.pointMesh.geometry.attributes.target.array = attrs.point.translations;
@@ -432,6 +434,10 @@ Wordmap.prototype.createGui = function() {
     .name('mipmap')
     .onChange(this.updateTexture.bind(this))
 
+  this.gui.style.colorPoints = this.gui.style.folder.add(this, 'colorPoints')
+    .name('color points')
+    .onChange(this.draw.bind(this))
+
   this.gui.style.transitionDuration = this.gui.style.folder.add(this, 'transitionDuration', 0.0, 30.0)
     .name('animations');
 
@@ -530,18 +536,20 @@ Wordmap.prototype.getMeshAttrs = function() {
 }
 
 
+// fetch material for initial rendering only; all updates mutate this material
 Wordmap.prototype.getShaderMaterial = function() {
   // return a new shader material
   return new THREE.RawShaderMaterial({
     vertexShader: document.getElementById('vertex-shader').textContent,
     fragmentShader: document.getElementById('fragment-shader').textContent,
     uniforms: {
-      pointScale: { type: 'f', value: 0.0, },
-      transition: { type: 'f', value: 0.0, },
-      cellSize:   { type: 'f', value: this.size / (this.size * 16), }, // letter size in map
-      color:      { type: 'f', value: this.getColorUniform(), },
-      tex:        { type: 't', value: this.data.characters.tex, },
-      colors:     { type: 'vec3', value: new Float32Array([1,2,3,4,5,6,7]), }
+      pointScale:  { type: 'f', value: 0.0, },
+      transition:  { type: 'f', value: 0.0, },
+      cellSize:    { type: 'f', value: this.size / (this.size * 16), }, // letter size in map
+      color:       { type: 'f', value: this.getColorUniform(), },
+      tex:         { type: 't', value: this.data.characters.tex, },
+      colors:      { type: 'vec3', value: new Float32Array([1,2,3,4,5,6,7]), },
+      colorPoints: { type: 'f', value: this.colorPoints ? 1.0 : 0.0 },
     },
     transparent: false,
   });
@@ -664,7 +672,8 @@ Wordmap.prototype.getWordCoords = function(word) {
 **/
 
 Wordmap.prototype.queryWords = function(s) {
-  return this.data.texts.filter(function(w) {
+  var map = this.data.layouts[this.layout].wordToCoords;
+  return Object.keys(map).filter(function(w) {
     return w.toLowerCase().indexOf(s.toLowerCase()) > -1;
   });
 }
