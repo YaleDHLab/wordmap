@@ -564,7 +564,7 @@ def parse():
   # model parameters
   parser.add_argument('--model', type=str, help='Path to a Word2Vec or Doc2Vec model to load', required=False)
   parser.add_argument('--model_name', type=str, default=defaults['model_name'], help='The name to use when saving a word2vec model')
-  parser.add_argument('--model_type', type=str, default=defaults['word2vec'], choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
+  parser.add_argument('--model_type', type=str, default=defaults['model_type'], choices=['word2vec', 'doc2vec'], help='The type of model to build {word2vec|doc2vec}', required=False)
   parser.add_argument('--use_cache', type=bool, default=defaults['use_cache'], help='Boolean indicating whether to load cached models to save compute time')
   # k-to-vec model params
   parser.add_argument('--size', type=int, default=defaults['size'], help='Number of dimensions to include in the model embeddings', required=False)
