@@ -10,7 +10,7 @@ function Wordmap() {
   this.heightScalar = 0.002; // controls mountain height
   // style parameters
   this.wordSize = 0.0015; // sizes up words
-  this.pointSize = 0; // sizes up points
+  this.pointSize = 0.0015; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#222'; // background color
   this.color = '#fff'; // text color
@@ -412,7 +412,7 @@ Wordmap.prototype.draw = function(cb) {
 Wordmap.prototype.initializeMeshes = function() {
   // remove extant meshes
   for (var i=0; i<this.scene.children.length; i++) {
-    this.scene.children[i].remove();
+    this.scene.remove(this.scene.children[i]);
   }
   // create meshes rendered for users
   var attrs = this.getMeshAttrs();
@@ -505,12 +505,24 @@ Wordmap.prototype.createGui = function() {
     }),
     layout: {
       folder: null,
-      hyperparams: [],
+      hyperparams: [], // updated to set per-layout hyperparams
+    },
+    render: {
+      folder: null,
     },
     style: {
       folder: null,
     },
   };
+
+  // render folder
+  this.gui.render.folder = this.gui.root.addFolder('Render');
+
+  this.gui.render.primitive = this.gui.render.folder.add(this, 'renderPrimitive', ['points', 'words'])
+    .name('render')
+    .onFinishChange(this.onRenderPrimitiveChange.bind(this))
+
+  this.setGuiRenderFolder();
 
   // layout folder
   this.gui.layout.folder = this.gui.root.addFolder('Layout');
@@ -526,14 +538,6 @@ Wordmap.prototype.createGui = function() {
   // style folder
   this.gui.style.folder = this.gui.root.addFolder('Style');
 
-  this.gui.style.wordSize = this.gui.style.folder.add(this, 'wordSize', 0.0, 0.002)
-    .name('word size')
-    .onFinishChange(this.draw.bind(this))
-
-  this.gui.style.pointSize = this.gui.style.folder.add(this, 'pointSize', 0.0, 0.01)
-    .name('point size')
-    .onFinishChange(this.draw.bind(this))
-
   this.gui.style.background = this.gui.style.folder.addColor(this, 'background')
     .name('background')
     .onChange(this.setBackgroundColor.bind(this))
@@ -542,25 +546,58 @@ Wordmap.prototype.createGui = function() {
     .name('color')
     .onChange(this.updateTexture.bind(this))
 
-  this.gui.style.font = this.gui.style.folder.add(this, 'font', this.fonts)
-    .name('font')
-    .onChange(this.updateTexture.bind(this))
-
   this.gui.style.mipmap = this.gui.style.folder.add(this, 'mipmap')
     .name('mipmap')
     .onChange(this.updateTexture.bind(this))
 
-  this.gui.style.colorPoints = this.gui.style.folder.add(this, 'colorPoints')
-    .name('color points')
-    .onChange(this.draw.bind(this))
-
   this.gui.style.transitionDuration = this.gui.style.folder.add(this, 'transitionDuration', 0.0, 30.0)
     .name('animations');
 
+  this.gui.render.folder.open();
   this.gui.layout.folder.open();
   this.gui.style.folder.open();
 }
 
+Wordmap.prototype.setGuiRenderFolder = function() {
+  // remove all elements in this folder
+  ['pointSize', 'colorPoints', 'wordSize', 'font'].forEach(function(i) {
+    if (this.gui.render[i]) {
+      this.gui.render.folder.remove(this.gui.render[i])
+      delete this.gui.render[i];
+    }
+  }.bind(this))
+
+  // add the options appropriate for this render primitive
+  if (this.renderPrimitive == 'points') {
+    this.gui.render.pointSize = this.gui.render.folder.add(this, 'pointSize', 0.0, 0.003)
+      .name('point size')
+      .onFinishChange(this.draw.bind(this))
+
+    this.gui.render.colorPoints = this.gui.render.folder.add(this, 'colorPoints')
+      .name('color clusters')
+      .onChange(this.draw.bind(this))
+  } else {
+    this.gui.render.wordSize = this.gui.render.folder.add(this, 'wordSize', 0.0, 0.003)
+      .name('word size')
+      .onFinishChange(this.draw.bind(this))
+
+    this.gui.render.font = this.gui.render.folder.add(this, 'font', this.fonts)
+      .name('font')
+      .onChange(this.updateTexture.bind(this))
+  }
+}
+
+Wordmap.prototype.onRenderPrimitiveChange = function() {
+  this.setGuiRenderFolder();
+  this.clearMeshes();
+  this.draw();
+}
+
+Wordmap.prototype.clearMeshes = function() {
+  ['pointMesh', 'pointPickingMesh', 'textMesh', 'textPickingMesh'].forEach(function(m) {
+    delete this[m];
+  }.bind(this))
+}
 
 /**
 * Character canvas
