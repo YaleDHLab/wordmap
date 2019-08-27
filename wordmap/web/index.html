@@ -210,6 +210,20 @@
   }
 
   /**
+  * Stats
+  **/
+
+  #stats-container {
+    position: absolute;
+    top: 60px;
+    left: 0;
+  }
+
+  #stats-container canvas {
+    opacity: 1;
+  }
+
+  /**
   * Fonts
   **/
 
@@ -257,11 +271,13 @@
   attribute vec2 texOffset;
   attribute float cluster;
   attribute float clusterTarget;
+  attribute vec3 pickingColor;
 
   varying vec2 vTexOffset;
   varying float vDistance;
   varying float vCluster;
   varying float vClusterTarget;
+  varying vec3 vPickingColor;
 
   void main() {
     // project this particle
@@ -271,19 +287,18 @@
     vec4 mvPosition = modelViewMatrix * vec4(raw, 1.0);
     gl_Position = projectionMatrix * mvPosition;
 
-    // make distant points small
+    // point attenuation
     vec4 cam4 = vec4(cameraPosition, 1.0);
     gl_PointSize = (pointScale / -mvPosition.z);
 
-    // pseudo-discard pixels if the user has set this mesh's size to 0
-    if (false) {
-      highp int scaleInt = int(pointScale);
-      if (scaleInt == 0) gl_PointSize = 0.0;
-    }
-
+    // point attenuation
     vDistance = -mvPosition.z;
 
-    #ifdef WORDS
+    #ifdef USE_PICKING_COLOR
+      vPickingColor = pickingColor;
+    #endif
+
+    #ifdef TEXT
       vTexOffset = texOffset;
     #else
       vCluster = cluster;
@@ -307,7 +322,11 @@
 
   varying float vDistance;
 
-  #ifdef WORDS
+    #ifdef USE_PICKING_COLOR
+    varying vec3 vPickingColor;
+  #endif
+
+  #ifdef TEXT
     varying vec2 vTexOffset;
   #else
     varying float vCluster;
@@ -325,27 +344,30 @@
   }
 
   void main() {
-    #ifdef WORDS
-      vec2 uv = vTexOffset + vec2(gl_PointCoord.x, gl_PointCoord.y);
-      vec2 scaledUv = uv * vec2(cellSize, cellSize);
-      gl_FragColor = texture2D(tex, scaledUv);
-      if (gl_FragColor.a < 0.01) discard; // discard non-letter pixels
-    #else
+    #ifdef POINTS
       // make point circular
       if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-      // color the points
-      if (colorPoints > 0.5) {
-        vec4 colorCurrent = rotColor(vCluster);
-        vec4 colorTarget = rotColor(vClusterTarget);
-        gl_FragColor = mix(colorCurrent, colorTarget, transition);
-      } else {
-        gl_FragColor = vec4(vec3(color), 1.0);
-      }
     #endif
 
-    if (false) {
-      gl_FragColor.a += pow(vDistance, 2.0) / 5.0;
-    }
+    #ifdef USE_PICKING_COLOR
+      gl_FragColor = vec4(vPickingColor, 1.0);
+    #else
+      #ifdef TEXT
+        vec2 uv = vTexOffset + vec2(gl_PointCoord.x, gl_PointCoord.y);
+        vec2 scaledUv = uv * vec2(cellSize, cellSize);
+        gl_FragColor = texture2D(tex, scaledUv);
+        if (gl_FragColor.a < 0.01) discard; // discard non-letter pixels
+      #else
+        // color the points
+        if (colorPoints > 0.5) {
+          vec4 colorCurrent = rotColor(vCluster);
+          vec4 colorTarget = rotColor(vClusterTarget);
+          gl_FragColor = mix(colorCurrent, colorTarget, transition);
+        } else {
+          gl_FragColor = vec4(vec3(color), 1.0);
+        }
+      #endif
+    #endif
   }
   </script>
 
