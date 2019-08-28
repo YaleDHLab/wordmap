@@ -273,11 +273,16 @@
   attribute float clusterTarget;
   attribute vec3 pickingColor;
 
-  varying vec2 vTexOffset;
-  varying float vDistance;
-  varying float vCluster;
-  varying float vClusterTarget;
-  varying vec3 vPickingColor;
+  #ifdef USE_PICKING_COLOR
+    varying vec3 vPickingColor;
+  #endif
+
+  #ifdef TEXT
+    varying vec2 vTexOffset;
+  #else
+    varying float vCluster;
+    varying float vClusterTarget;
+  #endif
 
   void main() {
     // project this particle
@@ -290,9 +295,6 @@
     // point attenuation
     vec4 cam4 = vec4(cameraPosition, 1.0);
     gl_PointSize = (pointScale / -mvPosition.z);
-
-    // point attenuation
-    vDistance = -mvPosition.z;
 
     #ifdef USE_PICKING_COLOR
       vPickingColor = pickingColor;
@@ -320,9 +322,7 @@
   uniform float color;
   uniform vec3 colors;
 
-  varying float vDistance;
-
-    #ifdef USE_PICKING_COLOR
+  #ifdef USE_PICKING_COLOR
     varying vec3 vPickingColor;
   #endif
 
