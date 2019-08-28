@@ -3,23 +3,22 @@ var BA = THREE.BufferAttribute,
     IBA = THREE.InstancedBufferAttribute,
     ARR = Float32Array;
 
-
 function Wordmap() {
   // layout parameters
   this.layout = null; // the currently selected layout
-  this.heightScalar = 0.002; // controls mountain height
   // style parameters
-  this.wordSize = 0.0015; // sizes up words
-  this.pointSize = 0.0015; // sizes up points
+  this.wordSize = 0.001; // sizes up words
+  this.pointSize = 0.001; // sizes up points
   this.maxWords = 1000000; // max number of words to draw
   this.background = '#222'; // background color
   this.color = '#fff'; // text color
   this.colorPoints = false; // bool indicating whether to color points
   this.font = 'Monospace'; // font family
-  this.mipmap = true; // toggles mipmaps in texture
+  this.mipmap = false; // toggles mipmaps in texture
   this.transitionDuration = 1.0; // time of transitions in seconds
   this.renderPrimitive = 'words'; // the object to render {'points', 'words'}
   this.renderTooltip = false; // bool indicating whether to use gpu picking
+  this.heightScalar = 0.001; // controls mountain height
   // internal static
   this.size = 64; // size of each character on canvas
   this.initialQuery = 'stars'; // the default search term
@@ -39,7 +38,7 @@ function Wordmap() {
   };
   // data
   this.data = {
-    words: [], // list of strings to visualize
+    texts: [], // list of strings to visualize
     layouts: [],
     heightmap: {},
     characters: {}, // d[cluster_id] = {map: , tex: } controls cluster colors
@@ -527,13 +526,19 @@ Wordmap.prototype.createGui = function() {
   // layout folder
   this.gui.layout.folder = this.gui.root.addFolder('Layout');
 
-  this.gui.layout.layout = this.gui.layout.folder.add(this, 'layout', this.data.layouts)
-    .name('layout')
-    .onFinishChange(this.draw.bind(this))
+  // add layouts option if there are multiple layout types
+  if (this.data.layouts.length > 1) {
+    this.gui.layout.layout = this.gui.layout.folder.add(this, 'layout', this.data.layouts)
+      .name('layout')
+      .onFinishChange(this.draw.bind(this))
+  }
 
-  this.gui.layout.heightmap = this.gui.layout.folder.add(this, 'heightScalar', 0.0, 0.003)
-    .name('mountain')
-    .onFinishChange(this.draw.bind(this))
+  // add heightmap controller if n components = 2
+  if (this.data.manifest.params.n_components == 2) {
+    this.gui.layout.heightmap = this.gui.layout.folder.add(this, 'heightScalar', 0.0, 0.003)
+      .name('mountain')
+      .onFinishChange(this.draw.bind(this))
+  }
 
   // style folder
   this.gui.style.folder = this.gui.root.addFolder('Style');
@@ -551,7 +556,7 @@ Wordmap.prototype.createGui = function() {
     .onChange(this.updateTexture.bind(this))
 
   this.gui.style.transitionDuration = this.gui.style.folder.add(this, 'transitionDuration', 0.0, 30.0)
-    .name('animations');
+    .name('transition time');
 
   this.gui.render.folder.open();
   this.gui.layout.folder.open();
@@ -840,8 +845,7 @@ Wordmap.prototype.getWordCoords = function(word) {
 **/
 
 Wordmap.prototype.queryWords = function(s) {
-  var map = this.data.layouts[this.layout].wordToCoords;
-  return Object.keys(map).filter(function(w) {
+  return this.data.texts.filter(function(w) {
     return w.toLowerCase().indexOf(s.toLowerCase()) > -1;
   });
 }
