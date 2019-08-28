@@ -286,7 +286,7 @@ Wordmap.prototype.initializeIfLoaded = function() {
   // set the initial layout state and render the initial layout
   if (!this.allAssetsLoaded()) return;
   // set the initial layout state and add the mesh to the scene
-  this.layout = this.data.layouts[0];
+  if (!this.layout) this.layout = this.data.layouts[0];
   // initialize the gui to which we'll add layout hyperparms
   this.createGui();
   // set the hyperparams for the current layout
