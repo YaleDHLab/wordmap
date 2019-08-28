@@ -142,37 +142,37 @@ class Model:
     '''Validate the user arguments are in the right shape'''
     args = self.args
     # if the user requested a grid layout, make sure we have a non-grid layout
-    if args['layouts'] == ['grid']:
+    if args.get('layouts', []) == ['grid']:
       raise Exception('Please specify one or more layouts as a basis for the grid positions: umap tsne')
     # unless layout is img or obj we need a model or texts
-    if args['layouts'] != ['obj'] and args['layouts'] != ['img']:
+    if args.get('layouts', []) != ['obj'] and args['layouts'] != ['img']:
       # ensure the user asks for 2 or 3 embedding dimensions
-      if args['n_components'] not in [2, 3]:
+      if args.get('n_components', []) not in [2, 3]:
         raise Exception('Please set n_components to 2 or 3')
       # make sure the user provided a pretrained model or text data for a new model
-      if not any([args['model'], args['texts']]):
+      if not any([args.get('model', None), args.get('texts', None)]):
         raise Exception('Please provide either a --model or --texts argument')
       # if the user specified a model type make sure it's supported
-      if args['model_type'] not in ['word2vec', 'doc2vec']:
+      if args.get('model_type', None) not in ['word2vec', 'doc2vec']:
         raise Exception('The requested model type is not supported')
       # if the user specified a model check that it exists
-      if args['model'] and not os.path.exists(args['model']):
+      if args.get('model', None) and not os.path.exists(args.get('model', None)):
         raise Exception('The specified model file does not exist')
     # else ensure user has provided obj / img file
-    elif 'obj' in args['layouts'] and 'obj_file' not in args:
+    elif 'obj' in args.get('layouts', []) and 'obj_file' not in args:
       warnings.warn('The obj layout requires an obj_file argument')
-    elif 'img' in args['layouts'] and 'img_file' not in args:
+    elif 'img' in args.get('layouts', []) and 'img_file' not in args:
       warnings.warn('The img layout requires an img_file argument')
     # check if the user asked for any invalid layouts
-    invalid_layouts = [i for i in args['layouts'] if i not in layouts]
+    invalid_layouts = [i for i in args.get('layouts', []) if i not in layouts]
     if any(invalid_layouts):
       warnings.warn('Requested layouts are not available:', invalid_layouts)
-    args['layouts'] = [i for i in args['layouts'] if i in layouts]
+    args['layouts'] = [i for i in args.get('layouts', []) if i not in invalid_layouts]
     # ensure img layout requests have an img_file
-    if 'img' in args['layouts'] and not args['img_file']:
+    if 'img' in args.get('layouts', []) and not args.get('img_file', None):
       raise Exception('img layouts require an img_file parameter')
     # ensure grid is the last layout in the layout list
-    if 'grid' in args['layouts']:
+    if 'grid' in args.get('layouts', []):
       args['layouts'].remove('grid')
       args['layouts'].append('grid')
 
