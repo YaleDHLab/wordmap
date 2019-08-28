@@ -30,9 +30,9 @@ python -m http.server 7090
 
 After starting the web server, navigate to `http://localhost:7090/web/` to view the visualization.
 
-## Command Line Interface
+## Command Line Arguments
 
-The following flags can be passed to the wordmap command:
+The following flags can be passed to the wordmap command. Type `--help` to see the full list:
 
 `--texts` A glob of files to process
 
@@ -40,19 +40,33 @@ The following flags can be passed to the wordmap command:
 
 `--max_n` The maximum number of words/docs to include in the visualization
 
-`--layouts` The layouts to include in the output data `{umap, tsne, grid}`
+`--layouts` The layouts to render `{umap, tsne, grid, img, obj}`
+
+`--obj_file` An .obj file that should be used to create the obj layout
+
+`--img_file` A .png or .jpg file that should be used to create the img layout
 
 `--n_components` The number of dimensions to use when creating the layouts
 
-`--obj_file` An .obj file whose vertices should be used to create the layout
+`--tsne_perplexity` The perplexity value to use when creating TSNE layout
 
-`--model` A persisted gensim.Word2Vec model to use to create layouts
+`--umap_n_neighbors` The n_neighbors value to use when creating UMAP layout
 
-`--model_name` The name to use when saving a gensim Word2Vec model to disk
+`--umap_min_distance` The min_distance value to use when creating the UMAP layout
+
+`--model_type` The model type to use {`word2vec`}
+
+`--use_cache` Boolean that, if True, will load saved layouts from `models`
+
+`--model_name` The name to use when saving a model to disk
+
+`--model` A persisted model to use to create layouts
 
 `--size` The number of dimensions to include in Word2Vec vectors
 
 `--window` The number of words to include in windows when creating a Word2Vec model
+
+`--iter` The maximum number of iterations to run the created model
 
 `--min_count` The minimum occurrences of each word to be included in the Word2Vec model
 
@@ -65,13 +79,16 @@ The following flags can be passed to the wordmap command:
 Create a wordmap of the text files in ./data using the `umap`, `tsne`, and `grid` layouts:
 
 ```bash
-wordmap --texts "data/*.txt" --layouts umap tsne grid
+wordmap --texts "data/*.txt" \
+  --layouts umap tsne grid
 ```
 
 Create a wordmap using a saved Word2Vec model with 3 dimsions and a maximum of 10000 words:
 
 ```bash
-wordmap --model "1563222036.model" --n_components 3 --max_n 10000
+wordmap --model "1563222036.model" \
+  --n_components 3 \
+  --max_n 10000
 ```
 
 Create a wordmap with several layouts, each with multiple parameter steps:
