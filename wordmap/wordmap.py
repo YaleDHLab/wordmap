@@ -17,6 +17,7 @@ from umap import UMAP
 import numpy as np
 import rasterfairy
 import webbrowser
+import traceback
 import itertools
 import calendar
 import argparse
@@ -61,7 +62,7 @@ defaults = {
   'texts': [],
   'encoding': 'utf8',
   'model_name': '{}.model'.format(calendar.timegm(time.gmtime())),
-  'model_type': None,
+  'model_type': 'word2vec',
   'use_cache': False,
   'size': 64,
   'window': 7,
@@ -157,6 +158,11 @@ class Model:
       # if the user specified a model check that it exists
       if args['model'] and not os.path.exists(args['model']):
         raise Exception('The specified model file does not exist')
+    # else ensure user has provided obj / img file
+    elif 'obj' in args['layouts'] and 'obj_file' not in args:
+      warnings.warn('The obj layout requires an obj_file argument')
+    elif 'img' in args['layouts'] and 'img_file' not in args:
+      warnings.warn('The img layout requires an img_file argument')
     # check if the user asked for any invalid layouts
     invalid_layouts = [i for i in args['layouts'] if i not in layouts]
     if any(invalid_layouts):
@@ -308,7 +314,8 @@ class Manifest:
   def get_layout_params(self, layout):
     '''Find the set of all hyperparams for each layout'''
     l = [] # store for the list of param dicts for this layout
-    keys = [i for i in self.args if i.startswith(layout) and self.args[i] and isinstance(i, list)]
+    keys = [i for i in self.args if i.startswith(layout) and \
+      self.args[i] and isinstance(self.args[i], list)]
     keys += post_layout_params
     d = {i: self.args[i] for i in keys}
     for i in list(itertools.product(*[[{i:j} for j in d[i]] for i in d])):
@@ -337,8 +344,8 @@ class Manifest:
   def get_manifest_json(self):
     '''Create a manifest.json file outlining the layout options availble'''
     d = defaultdict(lambda: defaultdict(list))
+    d['params'] = self.args
     for i in self.layouts:
-      d['params'] = self.args,
       d['layouts'][i.layout].append({
         'filename': i.filename,
         'params': {k: str(v) for k, v in i.hyperparams.items()},
@@ -368,7 +375,7 @@ class Layout:
     self.layout = kwargs.get('layout')
     self.params = kwargs.get('params')
     self.json = {}
-    self.float_precision = kwargs.get('float_precision', 2)
+    self.float_precision = kwargs.get('float_precision', 4)
     self.hyperparams = self.get_hyperparams()
     self.filename = self.get_filename()
     self.cache_dir = os.path.join(cache_dir, self.layout)
@@ -400,6 +407,7 @@ class Layout:
     '''Try to load this layout from the cache'''
     if os.path.exists(self.cache_path) and self.params['use_cache']:
       with open(self.cache_path) as f:
+        print(' * loading layout from cache')
         return json.load(f)
 
   def write_to_cache(self):
@@ -495,7 +503,10 @@ class Layout:
         self.json = data
         self.write_to_cache()
       except Exception as exc:
-        print(' ! Failed to generate layout with params', self.params, exc)
+        print(' ! Failed to generate layout\n',
+          self.__dict__,
+          '\n',
+          traceback.format_exc())
 
 
   def jitter_positions(self, X):
@@ -557,7 +568,8 @@ def parse():
   '''
   Main method for parsing a glob of files passed on the command line
   '''
-  parser = argparse.ArgumentParser(description='Transform text data into a large WebGL Visualization')
+  parser = argparse.ArgumentParser(description='Transform text data into a large WebGL Visualization',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   # input data parameters
   parser.add_argument('--texts', type=str, default=defaults['texts'], help='A glob of text files to process', required=False)
   parser.add_argument('--encoding', type=str, default=defaults['encoding'], help='The encoding of input files', required=False)
