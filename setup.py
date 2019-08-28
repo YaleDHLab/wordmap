@@ -4,7 +4,7 @@ import glob
 
 setup (
   name='wordmap',
-  version='0.0.6',
+  version='0.1.0',
   packages=['wordmap'],
   package_data={
     'wordmap': [
@@ -40,5 +40,5 @@ setup (
     'console_scripts': [
       'wordmap=wordmap:parse',
     ],
-},
+  },
 )
