@@ -907,7 +907,7 @@ function Typeahead() {
 * Helpers
 **/
 
-// center a 2d array of vertex positions -1:1 on each axis
+// center a 3d array of vertex positions with unit length axes
 function center(arr) {
   var max = Number.POSITIVE_INFINITY,
       min = Number.NEGATIVE_INFINITY,
@@ -926,6 +926,36 @@ function center(arr) {
     if (z < domZ.min) domZ.min = z;
     if (z > domZ.max) domZ.max = z;
   }
+  // use the axis with widest variance as unit vector
+  var xVar = Math.abs(domX.max-domX.min),
+      yVar = Math.abs(domY.max-domY.min),
+      zVar = Math.abs(domZ.max-domZ.min),
+      vars = [xVar, yVar, zVar],
+      max = vars.sort().reverse()[0],
+      idx = vars.indexOf(max);
+  switch (idx) {
+    case 0:
+      domY.min *= (xVar/yVar);
+      domY.max *= (xVar/yVar);
+      domZ.min *= (xVar/zVar);
+      domZ.max *= (xVar/zVar);
+      break;
+    case 1:
+      domX.min *= (xVar/yVar);
+      domX.max *= (xVar/yVar);
+      domZ.min *= (zVar/yVar);
+      domZ.max *= (zVar/yVar);
+      break;
+    case 2:
+      domX.min *= (xVar/zVar);
+      domX.max *= (xVar/zVar);
+      domY.min *= (yVar/zVar);
+      domY.max *= (yVar/zVar);
+      break;
+    default:
+      console.warn(' * maximum domain could not be found')
+  }
+  // center the axes using the domain with widest variance
   var centered = [];
   for (var i=0; i<arr.length; i++) {
     var cx = (((arr[i][0]-domX.min)/(domX.max-domX.min))*2)-1,
