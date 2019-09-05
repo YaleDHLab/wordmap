@@ -160,13 +160,13 @@ class Model:
         raise Exception('The specified model file does not exist')
     # else ensure user has provided obj / img file
     elif 'obj' in args.get('layouts', []) and 'obj_file' not in args:
-      warnings.warn('The obj layout requires an obj_file argument')
+      warnings.warn('The obj layout requires an obj_file argument', Warning)
     elif 'img' in args.get('layouts', []) and 'img_file' not in args:
-      warnings.warn('The img layout requires an img_file argument')
+      warnings.warn('The img layout requires an img_file argument', Warning)
     # check if the user asked for any invalid layouts
     invalid_layouts = [i for i in args.get('layouts', []) if i not in layouts]
     if any(invalid_layouts):
-      warnings.warn('Requested layouts are not available:', invalid_layouts)
+      warnings.warn('Requested layouts are not available: {}'.format(invalid_layouts), Warning)
     args['layouts'] = [i for i in args.get('layouts', []) if i not in invalid_layouts]
     # ensure img layout requests have an img_file
     if 'img' in args.get('layouts', []) and not args.get('img_file', None):
@@ -265,7 +265,7 @@ class Model:
       with codecs.open(path, 'r', self.args['encoding']) as f:
         return re.sub(r'[^\w\s]','', f.read().lower()).split()
     else:
-      warnings.warn('The following requested file does not exist', path)
+      warnings.warn('The following requested file does not exist: {}'.format(path), Warning)
 
   def create_manifest(self):
     '''Create a plot from this model'''
