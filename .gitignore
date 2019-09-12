@@ -6,6 +6,7 @@
 *.egg-info
 *.model
 *.index
+*.png
 __pycache__
 .ipynb_checkpoints
 clean.sh

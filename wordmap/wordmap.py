@@ -21,7 +21,6 @@ import traceback
 import itertools
 import calendar
 import argparse
-import warnings
 import sklearn
 import gensim
 import joblib
@@ -160,13 +159,13 @@ class Model:
         raise Exception('The specified model file does not exist')
     # else ensure user has provided obj / img file
     elif 'obj' in args.get('layouts', []) and 'obj_file' not in args:
-      warnings.warn('The obj layout requires an obj_file argument')
+      print(' ! The obj layout requires an obj_file argument')
     elif 'img' in args.get('layouts', []) and 'img_file' not in args:
-      warnings.warn('The img layout requires an img_file argument')
+      print(' ! The img layout requires an img_file argument')
     # check if the user asked for any invalid layouts
     invalid_layouts = [i for i in args.get('layouts', []) if i not in layouts]
     if any(invalid_layouts):
-      warnings.warn('Requested layouts are not available:', invalid_layouts)
+      print(' ! Requested layouts are not available: {}'.format(invalid_layouts))
     args['layouts'] = [i for i in args.get('layouts', []) if i not in invalid_layouts]
     # ensure img layout requests have an img_file
     if 'img' in args.get('layouts', []) and not args.get('img_file', None):
@@ -265,7 +264,7 @@ class Model:
       with codecs.open(path, 'r', self.args['encoding']) as f:
         return re.sub(r'[^\w\s]','', f.read().lower()).split()
     else:
-      warnings.warn('The following requested file does not exist', path)
+      print(' ! The following requested file does not exist: {}'.format(path))
 
   def create_manifest(self):
     '''Create a plot from this model'''
@@ -413,7 +412,7 @@ class Layout:
   def write_to_cache(self):
     '''Write the model to the cache for faster i/o in the future'''
     if not self.json:
-      warnings.warn('Could not persist layout to cache; no JSON present')
+      print(' ! Could not persist layout to cache; no JSON present')
     else:
       if not os.path.exists(self.cache_dir):
         os.makedirs(self.cache_dir)
@@ -467,7 +466,7 @@ class Layout:
           return ObjParser(self.obj_path).get_n_vertices(X.shape[0])
       return ObjLayout(self.params.get('obj_file'))
     else:
-      print('Warning: received request for unsupported layout model')
+      print(' ! Received request for unsupported layout model', self.layout)
 
   def get_positions(self, df):
     '''Find the vertex positions for the user-provided data'''
