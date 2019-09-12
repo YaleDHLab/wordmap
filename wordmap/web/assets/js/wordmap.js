@@ -313,6 +313,8 @@ Wordmap.prototype.allAssetsLoaded = function() {
 Wordmap.prototype.setHyperparams = function() {
   // store the distinct levels for each factor in the current layout's hyperparams
   var params = {};
+  // the file namespace is used by multiple layouts -- reset it to null
+  if (this.file) this.file = null;
   this.data.manifest.layouts[this.layout].forEach(function(o) {
     Object.keys(o.params).forEach(function(k) {
       if (!(k in params)) params[k] = [o.params[k]];
@@ -907,7 +909,7 @@ function Typeahead() {
 * Helpers
 **/
 
-// center a 3d array of vertex positions with unit length axes
+// center a 3d array of vertex positions -1:1 on each axis
 function center(arr) {
   var max = Number.POSITIVE_INFINITY,
       min = Number.NEGATIVE_INFINITY,
