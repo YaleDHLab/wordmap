@@ -442,7 +442,7 @@ class Layout:
         embedding_dims = self.params.get('n_components'),
         k = self.params.get('ivis_k'),
         verbose = self.params.get('verbose'),
-        n_epochs_without_progress=10
+        n_epochs_without_progress = 10,
       )
     elif self.layout == 'grid':
       # monkeypatch fit_transform method into rasterfairy for consistent api
@@ -526,7 +526,7 @@ class Layout:
   def scale_data(self, X):
     '''Scale a 2d array of points `X`'''
     if self.layout == 'ivis':
-        return StandardScaler().fit_transform(X)
+      return StandardScaler().fit_transform(X)
     return X
 
   def round(self, arr):
