@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, send_from_directory, render_template
 from gensim.models.callbacks import CallbackAny2Vec
 from gensim.models.doc2vec import TaggedDocument
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from vertices import ObjParser, ImgParser
 from distutils.dir_util import copy_tree
 from sklearn.decomposition import NMF
@@ -74,6 +74,8 @@ defaults = {
   'lloyd_iterations': 0,
   'verbose': False,
   'n_clusters': [7],
+  'ivis_k': [150],
+  'ivis_model': ['maaten'],
   'tsne_perplexity': [30],
   'umap_n_neighbors': [10],
   'umap_min_dist': [0.5],
@@ -440,6 +442,7 @@ class Layout:
         embedding_dims = self.params.get('n_components'),
         k = self.params.get('ivis_k'),
         verbose = self.params.get('verbose'),
+        n_epochs_without_progress=10
       )
     elif self.layout == 'grid':
       # monkeypatch fit_transform method into rasterfairy for consistent api
@@ -477,7 +480,9 @@ class Layout:
       try:
         df = self.scale_data(df)
         # find the direct model positions for this layout
+
         positions = self.get_model().fit_transform(df)
+
         data = {
           'layout': self.layout,
           'filename': self.filename,
@@ -521,7 +526,7 @@ class Layout:
   def scale_data(self, X):
     '''Scale a 2d array of points `X`'''
     if self.layout == 'ivis':
-      return MinMaxScaler().fit_transform(X)
+        return StandardScaler().fit_transform(X)
     return X
 
   def round(self, arr):
@@ -593,6 +598,9 @@ def parse():
   parser.add_argument('--verbose', type=bool, default=defaults['verbose'], help='If true, logs progress during layout construction')
   # shared combinatorial layout params
   parser.add_argument('--n_clusters', type=int, nargs='+', default=defaults['n_clusters'], help='The number of clusters to identify')
+  # layout parameters - ivis
+  parser.add_argument('--ivis_k', type=int, nargs='+', default=defaults['ivis_k'], help='The k parameter for ivis layouts')
+  parser.add_argument('--ivis_model', type=str, nargs='+', default=defaults['ivis_model'], help='The model parameter for ivis layouts')
   # layout parameters - tsne
   parser.add_argument('--tsne_perplexity', type=int, nargs='+', default=defaults['tsne_perplexity'], help='The perplexity parameter for TSNE layouts')
   # layout parameters - umap
