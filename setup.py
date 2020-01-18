@@ -1,17 +1,18 @@
 from setuptools import setup
-from os.path import join
-import glob
+import glob, os
+
+web = []
+for root, subdirs, files in os.walk(os.path.join('wordmap')):
+  if not files: continue
+  for file in files:
+    web.append(os.path.join(root.replace('wordmap/', ''), file))
 
 setup (
   name='wordmap',
-  version='0.1.1',
+  version='0.1.2',
   packages=['wordmap'],
   package_data={
-    'wordmap': [
-      'web/*',
-      'web/js/*',
-      'geometry/*',
-    ],
+    'wordmap': web,
   },
   keywords = ['webgl', 'three.js', 'word2vec', 'tsne', 'umap', 'machine-learning'],
   description='Visualize massive word collections',
