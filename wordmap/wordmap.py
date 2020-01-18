@@ -339,8 +339,7 @@ class Manifest:
 
   def copy_web_template(self):
     '''Copy the base web asset files from self.directory to ./web'''
-    if not os.path.exists(self.target_dir):
-      copy_tree(self.template_dir, target_dir)
+    copy_tree(self.template_dir, target_dir)
 
   def get_manifest_json(self):
     '''Create a manifest.json file outlining the layout options availble'''
