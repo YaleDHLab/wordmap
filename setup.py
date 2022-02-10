@@ -37,7 +37,7 @@ setup (
     'umap-learn>=0.3.8',
     'yale_dhlab_rasterfairy>=1.0.3',
     'vertices==0.0.5',
-    'tensorflow==1.15.0'
+    'tensorflow==2.5.3'
   ],
   entry_points={
     'console_scripts': [
